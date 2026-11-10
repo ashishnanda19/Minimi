@@ -86,3 +86,27 @@ describe("toModelMessages", () => {
     expect(out[2]!.content).toBe("[Tue 10 Nov 2026, 13:15] now?");
   });
 });
+
+import { buildDateLookup } from "../src/agent/memory.js";
+
+describe("buildDateLookup", () => {
+  const stored = [
+    msg("user", "Cheapest Postgres hosting?", "2026-11-03T08:30:00Z"),
+    msg("assistant", "Neon [1]", "2026-11-03T08:31:00Z"),
+  ];
+  it("tells the model what was actually asked on the referenced day", () => {
+    const out = buildDateLookup("What did I ask on 3 November?", stored, NOW, TZ);
+    expect(out).toContain('"3 November" = Tue 3 Nov 2026 (2026-11-03, 7 days ago): 2 stored message(s)');
+    expect(out).toContain('The user asked: "Cheapest Postgres hosting?"');
+  });
+  it("states plainly that nothing is stored for a day, and names the nearest days that have records", () => {
+    const out = buildDateLookup("What did I ask on 20 October?", stored, NOW, TZ);
+    expect(out).toContain("NO stored messages on that day");
+    expect(out).toContain("Nearest days with records: Tue 3 Nov 2026 (7 days ago)");
+    expect(out).not.toContain("Cheapest Postgres");
+  });
+  it("says so when there is no history at all, and returns nothing when the message has no dates", () => {
+    expect(buildDateLookup("on 3 November?", [], NOW, TZ)).toContain("No conversations are stored at all");
+    expect(buildDateLookup("hello there", stored, NOW, TZ)).toBe("");
+  });
+});

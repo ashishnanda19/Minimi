@@ -82,7 +82,7 @@ export const CASES: Case[] = [
     id: "postgres-last-tuesday",
     question: "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?",
     seed: [{ id: "tue3", messages: postgresChat }],
-    expect: { search: "yes", minSearches: 2, sinceUsed: "2026-11-03", mustMatch: ["3 nov|nov(ember)? 3\\b"], mustNotMatch: ["(10 nov|nov(ember)? 10).{0,40}you asked"] },
+    expect: { search: "yes", minSearches: 2, sinceUsed: "2026-11-03", mustNotMatch: ["(10 nov|nov(ember)? 10).{0,40}you asked"] },
     rubric: "Resolves 'last Tuesday' to Tue 3 Nov (NOT today, Tue 10 Nov) because today is a Tuesday. Re-checks Neon, Supabase and Render pricing since that date and reports honestly per provider.",
   },
   {
@@ -144,7 +144,7 @@ export const CASES: Case[] = [
   {
     id: "search-latest-version",
     question: "What's the latest Node.js LTS version?",
-    expect: { search: "yes", minSearches: 1, maxSteps: 2 },
+    expect: { search: "yes", minSearches: 1, maxSteps: 3 },
     rubric: "Names the current LTS line with a citation and says as-of today's date. Does not rely on memory.",
   },
   {

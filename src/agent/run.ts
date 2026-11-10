@@ -2,7 +2,7 @@ import { stepCountIs, streamText } from "ai";
 import { TtlCache } from "../lib/cache.js";
 import { createSearchTool, type Hit, type SearchProvider } from "../tools/search.js";
 import type { SourceRef, Store } from "../store/db.js";
-import { buildLedger, splitMemory, toModelMessages } from "./memory.js";
+import { buildDateLookup, buildLedger, splitMemory, toModelMessages } from "./memory.js";
 import { retryAfterMs, statusOf, type ModelPool, type PoolEntry } from "./models.js";
 import { buildSystem } from "./prompt.js";
 import { normalizeCitations, SourceRegistry, type SearchLogEntry } from "./sources.js";
@@ -147,6 +147,11 @@ async function* attempt(
   if (!answer.trim()) throw new Error("model returned an empty answer");
   if (BROKEN_TOOL_MARKUP.test(answer)) throw new Error("model printed tool-call markup instead of calling the tool");
   answer = normalizeCitations(answer);
+  // Searched, got results, then stated facts with no citation: a weaker model ignoring the rules.
+  // Hand the turn to the next model; the last candidate's answer is accepted as is.
+  if (!isLast && registry.log.some((l) => l.results > 0) && !/\[\d+/.test(answer) && /\d/.test(answer)) {
+    throw new Error("model searched but cited no sources");
+  }
   return { answer, sources: registry.cited(answer), steps, ttftMs, searches: registry.log };
 }
 
@@ -160,8 +165,11 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
     if (input.history?.length) {
       store.addMessages(sessionId, input.history.map((h) => ({ role: h.role, content: h.content, createdAt: h.timestamp })));
     }
-    const { live, earlier } = splitMemory(store.sessionMessages(sessionId), store.earlierMessages(sessionId, 400));
+    const sessionMsgs = store.sessionMessages(sessionId);
+    const otherChats = store.earlierMessages(sessionId, 400);
+    const { live, earlier } = splitMemory(sessionMsgs, otherChats);
     const ledger = buildLedger(earlier, now, tz);
+    const lookup = buildDateLookup(message, [...sessionMsgs, ...otherChats], now, tz);
     const messages = toModelMessages(live, message, now, tz);
 
     const fallbacks: Metrics["fallbacks"] = [];
@@ -177,7 +185,7 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
       for (const [i, entry] of candidates.entries()) {
         const isLast = i === candidates.length - 1;
         try {
-          const run = yield* attempt(entry, isLast, { provider, cache, started }, { system: buildSystem(now, tz, ledger, entry.cacheable), messages }, signal);
+          const run = yield* attempt(entry, isLast, { provider, cache, started }, { system: buildSystem(now, tz, ledger, entry.cacheable, lookup), messages }, signal);
           if (!run) return; // client aborted
           models.markOk(entry.name);
           outcome = run;

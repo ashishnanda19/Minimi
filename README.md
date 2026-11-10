@@ -23,13 +23,13 @@ npm run dev              # http://localhost:3000
 Set at least one model key. The agent tries providers in order (`LLM_ORDER`); when one is rate-limited, down or
 rejects a request it switches to the next mid-turn, and skips the failed one for a cooldown (about 60 s for rate
 limits). The default order is Anthropic, Gemini, Groq, OpenRouter, restricted to the keys you set. Free-tier
-limits change, so check each provider's dashboard. Answer quality follows the model: expect the paid and Gemini
+limits change and are per model (Gemini 2.5 Flash is 20 requests/day), so each provider takes a comma list of models and the agent waits up to 20 s for a rate limit to reset before giving up. Answer quality follows the model: expect the paid and Gemini
 tiers to follow the date and re-verification rules most reliably.
 
 | Command | What it does |
 |---|---|
 | `npm run dev` | server with reload |
-| `npm test` | 83 unit and integration tests, no keys or network needed |
+| `npm test` | 105 unit and integration tests, no keys or network needed |
 | `npm run typecheck` | strict TypeScript |
 | `npm run eval` | 16 end-to-end cases against the real models and search, writes `evals/results.md` (needs keys) |
 

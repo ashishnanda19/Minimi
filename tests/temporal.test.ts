@@ -83,3 +83,40 @@ describe("labels", () => {
     );
   });
 });
+
+import { resolveDateRefs } from "../src/agent/temporal.js";
+const refs = (text: string, now = NOW, tz = "Asia/Kolkata") => resolveDateRefs(text, now, tz).map((r) => `${r.phrase} -> ${isoDate(r.date)}`);
+
+describe("resolveDateRefs (today = Tue 10 Nov 2026)", () => {
+  it("resolves the brief's phrases", () => {
+    expect(refs("Last Tuesday I asked about Postgres")).toEqual(["Last Tuesday -> 2026-11-03"]);
+    expect(refs("On Monday we shortlisted 5 CRMs")).toEqual(["On Monday -> 2026-11-09"]);
+    expect(refs("What did I ask you on 3 November?")).toEqual(["3 November -> 2026-11-03"]);
+    expect(refs("and yesterday, and 5 days ago")).toEqual(["yesterday -> 2026-11-09", "5 days ago -> 2026-11-05"]);
+  });
+  it("reads month-first and ordinal forms, and ISO", () => {
+    expect(refs("Nov 3rd")).toEqual(["Nov 3rd -> 2026-11-03"]);
+    expect(refs("the 20th of October")).toEqual(["20th of October -> 2026-10-20"]);
+    expect(refs("on 2026-10-20")).toEqual(["2026-10-20 -> 2026-10-20"]);
+  });
+  it("a day-month with no year is the most recent occurrence not in the future", () => {
+    expect(refs("25 December")).toEqual(["25 December -> 2025-12-25"]);
+    expect(refs("10 November")).toEqual(["10 November -> 2026-11-10"]); // today counts
+    expect(refs("29 Feb", new Date("2028-03-05T00:00:00Z"), "UTC")).toEqual(["29 Feb -> 2028-02-29"]);
+    expect(refs("29 Feb")).toEqual(["29 Feb -> 2024-02-29"]); // falls back to the last leap year
+  });
+  it("a bare weekday that equals today means a week ago, like 'last <weekday>'", () => {
+    expect(refs("last Tuesday")).toEqual(["last Tuesday -> 2026-11-03"]);
+    expect(refs("Tuesday")).toEqual(["Tuesday -> 2026-11-03"]);
+  });
+  it("does not double-count 'last Monday' as both phrases, and ignores impossible dates", () => {
+    expect(refs("last Monday")).toHaveLength(1);
+    expect(refs("30 February")).toEqual([]);
+    expect(refs("no dates in here, just 'may' as a verb? I may go")).toEqual([]);
+  });
+  it("uses the user's timezone for 'yesterday'", () => {
+    const t = new Date("2026-11-09T19:30:00Z"); // 01:00 on 10 Nov in IST, still 9 Nov in UTC
+    expect(refs("yesterday", t, "Asia/Kolkata")).toEqual(["yesterday -> 2026-11-09"]);
+    expect(refs("yesterday", t, "UTC")).toEqual(["yesterday -> 2026-11-08"]);
+  });
+});

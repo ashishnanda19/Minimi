@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 import { hostOf } from "./sources.js";
-import { daysAgo, formatStamp, relativeLabel } from "./temporal.js";
+import { civilOf, dayDistance, daysAgo, formatDay, formatStamp, isoDate, relativeLabel, resolveDateRefs, sameDay } from "./temporal.js";
 import type { SourceRef, StoredMessage } from "../store/db.js";
 
 /** Last N messages of the current chat go in as real turns; anything older folds into the ledger. */
@@ -88,4 +88,29 @@ export function toModelMessages(live: StoredMessage[], newUserText: string, now:
   }
   push("user", `[${formatStamp(now, tz)}] ${newUserText}`);
   return turns.map((t) => ({ role: t.role, content: t.text }));
+}
+
+/**
+ * Resolves the dates in the user's message in code, then looks up what is actually stored for each.
+ * The model receives "on that day: 2 messages (...)" or "nothing stored, nearest days are ...",
+ * so it never has to guess, and "I have no record" is a fact handed to it, not something it must infer.
+ */
+export function buildDateLookup(userText: string, all: StoredMessage[], now: Date, tz: string): string {
+  const refs = resolveDateRefs(userText, now, tz);
+  if (!refs.length) return "";
+  const stamped = all.map((m) => ({ m, day: civilOf(m.createdAt, tz) }));
+  const lines = refs.map(({ phrase, date }) => {
+    const head = `"${phrase}" = ${formatDay(date)} (${isoDate(date)}, ${relativeLabel(dayDistance(date, civilOf(now, tz)))})`;
+    const onDay = stamped.filter((s) => sameDay(s.day, date)).map((s) => s.m);
+    if (onDay.length) {
+      const asked = onDay.filter((m) => m.role === "user").slice(0, 5).map((m) => `"${clip(m.content.replace(/\s+/g, " "), 160)}"`);
+      return `${head}: ${onDay.length} stored message(s). The user asked: ${asked.join("; ") || "(no user messages)"}`;
+    }
+    const days = [...new Map(stamped.map((s) => [isoDate(s.day), s.day])).values()]
+      .sort((a, b) => Math.abs(dayDistance(a, date)) - Math.abs(dayDistance(b, date)))
+      .slice(0, 2);
+    const near = days.map((d) => `${formatDay(d)} (${relativeLabel(dayDistance(d, civilOf(now, tz)))})`).join(", ");
+    return `${head}: NO stored messages on that day.${near ? ` Nearest days with records: ${near}.` : " No conversations are stored at all."}`;
+  });
+  return lines.join("\n");
 }

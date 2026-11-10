@@ -229,3 +229,19 @@ describe("everyone rate-limited", () => {
     expect(events.at(-1)).toMatchObject({ type: "error" });
   });
 });
+
+describe("uncited answers after a search", () => {
+  it("fails over to the next model when a model searched but cited nothing, and accepts the last as-is", async () => {
+    const sloppy = scriptedModel([{ tools: [{ input: { query: "acme pricing" } }] }, { text: "Acme costs $49 a month." }]);
+    const careful = scriptedModel([{ tools: [{ input: { query: "acme pricing" } }] }, { text: "Acme costs $49 a month [1]." }]);
+    const events = await run(new ModelPool([
+      { name: "sloppy", model: sloppy, cacheable: false },
+      { name: "careful", model: careful, cacheable: false },
+    ]));
+    expect(events.at(-1)).toMatchObject({ type: "done", metrics: { model: "careful" } });
+
+    // a lone model that never cites still gets through: failing forever would be worse
+    const alone = await run(new ModelPool([{ name: "sloppy", model: scriptedModel([{ tools: [{ input: { query: "acme pricing" } }] }, { text: "Acme costs $49." }]), cacheable: false }]));
+    expect(alone.at(-1)?.type).toBe("done");
+  });
+});

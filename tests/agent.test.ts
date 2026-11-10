@@ -113,3 +113,16 @@ describe("agent loop", () => {
     expect(store.sessionMessages("s1")).toHaveLength(0);
   });
 });
+
+describe("date lookup reaches the model", () => {
+  it("injects 'no stored messages' for an unrecorded day, so the model cannot invent a recall", async () => {
+    store.ensureSession("old", TZ, NOW);
+    store.addMessages("old", [{ role: "user", content: "Cheapest Postgres?", createdAt: new Date("2026-11-03T08:30:00Z") }]);
+    const model = scriptedModel([{ text: "I have no record for 20 Oct." }]);
+    await collect(runAgent(deps(model), { ...base, message: "What did I ask you on 20 October?" }));
+    const system = model.doStreamCalls[0]!.prompt.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    expect(system).toContain('"20 October" = Tue 20 Oct 2026');
+    expect(system).toContain("NO stored messages on that day");
+    expect(system).toContain("Nearest days with records: Tue 3 Nov 2026");
+  });
+});
