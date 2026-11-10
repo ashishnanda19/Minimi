@@ -23,8 +23,11 @@ const ENV_KEYS: Record<ProviderName, string> = {
   openrouter: "OPENROUTER_API_KEY",
 };
 
-/** Quality order: best tool-use and instruction-following first, most throttled free tier last. */
-const DEFAULT_ORDER: ProviderName[] = ["anthropic", "google", "groq", "openrouter"];
+/**
+ * Anthropic first (paid, no quotas). Then Groq: measured 2.9-3.2 s per search turn, versus 7-26 s on
+ * Gemini/OpenRouter when their free quotas are strained. A Groq rate limit costs one fast failed call.
+ */
+const DEFAULT_ORDER: ProviderName[] = ["anthropic", "groq", "google", "openrouter"];
 
 /** Fails fast with one actionable message instead of a stack trace on the first chat. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {

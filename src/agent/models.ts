@@ -29,6 +29,10 @@ export function retryAfterMs(err: unknown): number | undefined {
   return e?.lastError ? retryAfterMs(e.lastError) : e?.errors?.length ? retryAfterMs(e.errors.at(-1)) : undefined;
 }
 
+/** A model that answers but takes this long is benched briefly so the next turns go to a faster one. */
+export const SLOW_TURN_MS = 15_000;
+const SLOW_BENCH_MS = 5 * 60_000;
+
 const COOLDOWN_MS = { rateLimited: 60_000, maxRateLimited: 60 * 60_000, auth: 10 * 60_000, other: 30_000 };
 
 export const statusOf = (err: unknown): number | undefined => {
@@ -70,14 +74,17 @@ export class ModelPool {
     // Honour the provider's own reset hint ("retry in 12h" for a daily quota), bounded so a dead
     // model is re-checked hourly rather than never.
     const hint = retryAfterMs(err);
-    const ms = status === 429 ? Math.min(Math.max(hint ?? COOLDOWN_MS.rateLimited, 10_000), COOLDOWN_MS.maxRateLimited)
+    const timedOut = status === undefined && /timed out|timeout|aborted/i.test((err as Error)?.message ?? "");
+    const ms = timedOut ? SLOW_BENCH_MS
+      : status === 429 ? Math.min(Math.max(hint ?? COOLDOWN_MS.rateLimited, 10_000), COOLDOWN_MS.maxRateLimited)
       : status === 401 || status === 403 || status === 404 ? COOLDOWN_MS.auth
       : COOLDOWN_MS.other;
     this.benchedUntil.set(name, this.clock() + ms);
   }
 
-  markOk(name: string): void {
-    this.benchedUntil.delete(name);
+  markOk(name: string, turnMs = 0): void {
+    if (turnMs > SLOW_TURN_MS && this.entries.length > 1) this.benchedUntil.set(name, this.clock() + SLOW_BENCH_MS);
+    else this.benchedUntil.delete(name);
   }
 
   get names(): string[] {

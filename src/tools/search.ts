@@ -30,6 +30,12 @@ export interface Hit extends RawResult {
 
 const TIMEOUT_MS = 8_000;
 export const SNIPPET_CHARS = 600;
+/**
+ * A `since` search is sent once per entity, so five tools means five of these. Trimmed from 5+3 results to 3+2 to keep a
+ * 5-entity turn near 9k tokens instead of 12k: faster for every model, and under Groq's free 8k tokens-per-minute cap.
+ */
+const DATED_RESULTS = 3;
+const CURRENT_PAGE_RESULTS = 2;
 export type SearchDepth = "basic" | "fast" | "ultra-fast";
 
 export class TavilyProvider implements SearchProvider {
@@ -131,8 +137,8 @@ export async function webSearch(
   const base = { query: args.query, topic: args.topic, signal };
   const jobs = args.since
     ? [
-        deps.provider.search({ ...base, since: args.since, maxResults: args.maxResults }),
-        deps.provider.search({ ...base, maxResults: 3 }),
+        deps.provider.search({ ...base, since: args.since, maxResults: Math.min(args.maxResults, DATED_RESULTS) }),
+        deps.provider.search({ ...base, maxResults: CURRENT_PAGE_RESULTS }),
       ]
     : [deps.provider.search({ ...base, maxResults: args.maxResults })];
 
@@ -209,14 +215,14 @@ const toolInput = z.object({
   query: z.string().describe("Focused search query, at most 12 words"),
   since: z.string().optional().describe("YYYY-MM-DD from the calendar; only for 'what changed since' questions"),
   topic: z.enum(["general", "news"]).optional(),
-  maxResults: z.number().optional().describe("1-8, default 5"),
+  maxResults: z.number().optional().describe("1-8, default 4"),
 });
 
 const strictArgs = z.object({
   query: z.string().trim().min(2).max(300),
   since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "since must be YYYY-MM-DD").optional(),
   topic: z.enum(["general", "news"]).default("general"),
-  maxResults: z.number().int().min(1).max(8).default(5),
+  maxResults: z.number().int().min(1).max(8).default(4),
 });
 
 /** Hard ceiling on tool calls per turn. A 5-entity check needs 5; this stops a confused model burning credits. */

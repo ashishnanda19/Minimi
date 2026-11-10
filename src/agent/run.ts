@@ -12,6 +12,11 @@ export const MAX_STEPS = 4;
 const MAX_OUTPUT_TOKENS = 2_500;
 // Exhausted providers fail over immediately; only the last candidate is worth the SDK's own backoff-and-retry.
 const LAST_RESORT_RETRIES = 2;
+/**
+ * Deadlines. A provider stuck on "high demand" once held a turn for 75 s before erroring, so every model gets a
+ * deadline for its first content, and a stalled stream is cut. The last candidate is allowed to be slow: nobody is left.
+ */
+export const TIMEOUTS = { firstChunkMs: 10_000, lastResortFirstChunkMs: 45_000, chunkMs: 15_000, toolMs: 20_000 };
 
 export interface AgentDeps {
   models: ModelPool;
@@ -19,6 +24,8 @@ export interface AgentDeps {
   store: Store;
   cache?: TtlCache<Hit[]>;
   memoryScope?: "global" | "session";
+  /** Override the model deadlines (tests use tiny ones). */
+  timeouts?: Partial<typeof TIMEOUTS>;
   /** Injectable so tests don't actually wait. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
@@ -42,7 +49,7 @@ export interface RunInput {
 export interface Metrics {
   /** Which model produced the answer, and which ones failed before it. */
   model: string;
-  fallbacks: { model: string; error: string }[];
+  fallbacks: { model: string; error: string; ms: number }[];
   ttftMs: number | null;
   /** Time until the user first sees "Searching: ..." */
   firstStatusMs: number | null;
@@ -80,6 +87,8 @@ export function friendlyError(err: unknown): string {
 /** If every provider is rate-limited, wait for the shortest hinted reset (capped) and go round once more. */
 const MAX_RATE_LIMIT_WAIT_MS = 20_000;
 const DEFAULT_RATE_LIMIT_WAIT_MS = 10_000;
+/** A rate limit that resets within this long is waited out (once per turn) rather than skipped. */
+const SHORT_RETRY_MS = 8_000;
 
 const defaultSleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -107,11 +116,21 @@ interface Attempt {
 
 /** One full agent run on one model. Throws on any model/provider failure so the caller can fail over. */
 async function* attempt(
-  entry: PoolEntry, isLast: boolean, ctx: { provider: SearchProvider; cache: TtlCache<Hit[]>; started: number },
+  entry: PoolEntry, isLast: boolean, ctx: { provider: SearchProvider; cache: TtlCache<Hit[]>; started: number; timeouts: typeof TIMEOUTS },
   prompt: { system: ReturnType<typeof buildSystem>; messages: ReturnType<typeof toModelMessages> },
   signal: AbortSignal | undefined,
 ): AsyncGenerator<AgentEvent, Attempt | undefined> {
   const registry = new SourceRegistry(); // fresh per attempt: a failed model's sources must not leak into the next
+
+  // Deadline for the model's first content, re-armed for each model call. It aborts the real HTTP request, which also
+  // covers a provider that never responds at all (the SDK's own firstChunk timeout only starts after the connection).
+  const deadline = new AbortController();
+  const firstContentMs = isLast ? ctx.timeouts.lastResortFirstChunkMs : ctx.timeouts.firstChunkMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = () => { disarm(); timer = setTimeout(() => deadline.abort(), firstContentMs); };
+  const disarm = () => { if (timer) clearTimeout(timer); timer = undefined; };
+  arm();
+
   const result = streamText({
     model: entry.model,
     system: prompt.system,
@@ -122,8 +141,9 @@ async function* attempt(
     prepareStep: ({ stepNumber }) => (stepNumber >= MAX_STEPS - 1 ? { toolChoice: "none" as const } : undefined),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     maxRetries: isLast ? LAST_RESORT_RETRIES : 0,
+    timeout: { chunkMs: ctx.timeouts.chunkMs, toolMs: ctx.timeouts.toolMs },
     providerOptions: entry.providerOptions as never,
-    abortSignal: signal,
+    abortSignal: signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal,
     onError: () => {}, // surfaced below via the stream's error part
   });
 
@@ -137,40 +157,47 @@ async function* attempt(
   let lastToolDone = 0;
   const usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
 
-  for await (const part of result.fullStream) {
-    if (part.type === "text-delta") {
-      ttftMs ??= performance.now() - ctx.started;
-      stepText += part.text;
-      yield { type: "token", text: part.text };
-    } else if (part.type === "tool-call") {
-      firstStatusMs ??= performance.now() - ctx.started;
-      toolStart ??= performance.now();
-      yield { type: "status", text: `Searching: ${(part.input as { query?: string }).query ?? ""}` };
-    } else if (part.type === "tool-result" || part.type === "tool-error") {
-      lastToolDone = performance.now();
-    } else if (part.type === "finish-step") {
-      steps++;
-      usage.inputTokens += part.usage.inputTokens ?? 0;
-      usage.outputTokens += part.usage.outputTokens ?? 0;
-      usage.cacheReadTokens += part.usage.inputTokenDetails?.cacheReadTokens ?? 0;
-      if (toolStart !== null) searchWallMs += Math.max(0, lastToolDone - toolStart);
-      toolStart = null;
-      if (part.finishReason === "tool-calls") {
-        if (stepText) yield { type: "reset" };
-      } else {
-        answer += stepText;
-        if (part.finishReason === "length") {
-          const note = "\n\n_(Answer cut off at the length limit. Ask me to continue.)_";
-          answer += note;
-          yield { type: "token", text: note };
+  try {
+    for await (const part of result.fullStream) {
+      if (part.type === "text-delta" || part.type === "tool-call" || part.type === "reasoning-delta") disarm();
+      if (part.type === "text-delta") {
+        ttftMs ??= performance.now() - ctx.started;
+        stepText += part.text;
+        yield { type: "token", text: part.text };
+      } else if (part.type === "tool-call") {
+        firstStatusMs ??= performance.now() - ctx.started;
+        toolStart ??= performance.now();
+        yield { type: "status", text: `Searching: ${(part.input as { query?: string }).query ?? ""}` };
+      } else if (part.type === "tool-result" || part.type === "tool-error") {
+        lastToolDone = performance.now();
+      } else if (part.type === "finish-step") {
+        steps++;
+        usage.inputTokens += part.usage.inputTokens ?? 0;
+        usage.outputTokens += part.usage.outputTokens ?? 0;
+        usage.cacheReadTokens += part.usage.inputTokenDetails?.cacheReadTokens ?? 0;
+        if (toolStart !== null) searchWallMs += Math.max(0, lastToolDone - toolStart);
+        toolStart = null;
+        if (part.finishReason === "tool-calls") arm(); // the next model call starts now
+        if (part.finishReason === "tool-calls") {
+          if (stepText) yield { type: "reset" };
+        } else {
+          answer += stepText;
+          if (part.finishReason === "length") {
+            const note = "\n\n_(Answer cut off at the length limit. Ask me to continue.)_";
+            answer += note;
+            yield { type: "token", text: note };
+          }
         }
+        stepText = "";
+      } else if (part.type === "error") {
+        throw part.error;
+      } else if (part.type === "abort") {
+        if (signal?.aborted) return undefined; // the user cancelled
+        throw new Error("model timed out"); // our own deadline fired: that is a provider failure, not a cancellation
       }
-      stepText = "";
-    } else if (part.type === "error") {
-      throw part.error;
-    } else if (part.type === "abort") {
-      return undefined;
     }
+  } finally {
+    disarm();
   }
   if (signal?.aborted) return undefined;
   // A weak model that returns nothing is a provider failure like any other: try the next one.
@@ -188,6 +215,7 @@ async function* attempt(
 export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerator<AgentEvent> {
   const started = performance.now();
   const { store, models, provider, cache = defaultCache, sleep = defaultSleep, memoryScope = "global" } = deps;
+  const timeouts = { ...TIMEOUTS, ...deps.timeouts };
   const { sessionId, message, tz, now, signal } = input;
 
   try {
@@ -206,26 +234,43 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
     let outcome: Attempt | undefined;
     let used = "";
 
+    let shortRetryUsed = false;
     for (let round = 0; round < 2 && !outcome; round++) {
       const candidates = models.ordered();
       const waits: number[] = [];
       let allRateLimited = true;
       let lastErr: unknown;
 
-      for (const [i, entry] of candidates.entries()) {
+      for (let i = 0; i < candidates.length; i++) {
+        const entry = candidates[i]!;
         const isLast = i === candidates.length - 1;
+        const attemptStart = performance.now();
         try {
-          const run = yield* attempt(entry, isLast, { provider, cache, started }, { system: buildSystem(now, tz, ledger, entry.cacheable, lookup), messages }, signal);
+          const run = yield* attempt(entry, isLast, { provider, cache, started, timeouts }, { system: buildSystem(now, tz, ledger, entry.cacheable, lookup), messages }, signal);
           if (!run) return; // client aborted
-          models.markOk(entry.name);
+          models.markOk(entry.name, performance.now() - attemptStart);
           outcome = run;
           used = entry.name;
           break;
         } catch (err) {
           if (signal?.aborted) return;
           console.error(`[agent] ${entry.name} failed:`, errorText(err));
+
+          // A rate limit about to reset (Groq: "try again in 4s") is cheaper to wait out than a cascade to slower models.
+          const hint = statusOf(err) === 429 ? retryAfterMs(err) : undefined;
+          if (!shortRetryUsed && !isLast && hint !== undefined && hint <= SHORT_RETRY_MS) {
+            shortRetryUsed = true;
+            const ms = Math.ceil(hint + 300);
+            yield { type: "reset" };
+            yield { type: "status", text: `${entry.name.split(":")[0]} is busy, retrying in ${Math.ceil(ms / 1000)}s` };
+            await sleep(ms, signal);
+            if (signal?.aborted) return;
+            i--; // same model again
+            continue;
+          }
+
           models.markFailed(entry.name, err);
-          fallbacks.push({ model: entry.name, error: errorText(err) });
+          fallbacks.push({ model: entry.name, error: errorText(err), ms: performance.now() - attemptStart });
           lastErr = err;
           if (statusOf(err) === 429) waits.push(retryAfterMs(err) ?? DEFAULT_RATE_LIMIT_WAIT_MS);
           else allRateLimited = false;

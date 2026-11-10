@@ -42,3 +42,13 @@ export async function collect<T>(gen: AsyncGenerator<T>): Promise<T[]> {
   for await (const e of gen) out.push(e);
   return out;
 }
+
+/** A provider that accepts the request and then never answers, like a model stuck on "high demand". */
+export function hangingModel() {
+  return new MockLanguageModelV4({
+    doStream: ({ abortSignal }) =>
+      new Promise((_, reject) => {
+        abortSignal?.addEventListener("abort", () => reject(Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" })));
+      }),
+  });
+}

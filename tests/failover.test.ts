@@ -141,9 +141,9 @@ describe("config", () => {
     expect(() => loadConfig({ TAVILY_API_KEY: "t" })).toThrow(/at least one model key/);
     expect(() => loadConfig({ GROQ_API_KEY: "g" })).toThrow(/TAVILY_API_KEY/);
   });
-  it("orders only the providers that have keys, free ones after Anthropic by default", () => {
+  it("orders only the providers that have keys: Anthropic, then the fastest free tier", () => {
     const cfg = loadConfig({ ...base, OPENROUTER_API_KEY: "o", GROQ_API_KEY: "g", GOOGLE_GENERATIVE_AI_API_KEY: "k" });
-    expect(cfg.order).toEqual(["google", "groq", "openrouter"]);
+    expect(cfg.order).toEqual(["groq", "google", "openrouter"]);
   });
   it("lets LLM_ORDER and *_MODEL (comma lists) override", () => {
     const cfg = loadConfig({ ...base, GROQ_API_KEY: "g", GOOGLE_GENERATIVE_AI_API_KEY: "k", LLM_ORDER: "groq,google", GROQ_MODEL: "llama-x, llama-y" });
@@ -185,11 +185,11 @@ describe("everyone rate-limited", () => {
   it("waits for the SHORTEST hinted reset, tells the user, then succeeds instead of erroring", async () => {
     const slept: number[] = [];
     const events = await runWith(pool2(
-      scriptedModel([{ error: limited("Please retry in 2.4s") }, { text: "Back and fine." }]),
-      scriptedModel([{ error: limited("Rate limit reached. Please try again in 450ms.") }, { text: "Back and fine." }]),
+      scriptedModel([{ error: limited("Please retry in 14s") }, { text: "Back and fine." }]),
+      scriptedModel([{ error: limited("Rate limit reached. Please try again in 9s.") }, { text: "Back and fine." }]),
     ), slept);
-    expect(slept).toEqual([950]); // 450ms hint + 500ms buffer
-    expect(events.some((e) => e.type === "status" && /Retrying in 1s/.test(e.text))).toBe(true);
+    expect(slept).toEqual([9500]); // shortest hint (9s) + 500ms buffer; both are over the 8s short-retry threshold
+    expect(events.some((e) => e.type === "status" && /Retrying in 10s/.test(e.text))).toBe(true);
     expect(events.at(-1)).toMatchObject({ type: "done" });
   });
 
@@ -215,7 +215,7 @@ describe("everyone rate-limited", () => {
   it("never waits when any failure is something other than a rate limit", async () => {
     const slept: number[] = [];
     const events = await runWith(pool2(
-      scriptedModel([{ error: limited("Please retry in 1s") }]),
+      scriptedModel([{ error: limited("Please retry in 30s") }]),
       scriptedModel([{ error: Object.assign(new Error("bad key"), { statusCode: 401 }) }]),
     ), slept);
     expect(slept).toEqual([]);
@@ -267,5 +267,106 @@ describe("plan-compatible settings", () => {
     };
     expect(await ask("global")).toContain("SECRET-OLD-QUESTION");
     expect(await ask("session")).not.toContain("SECRET-OLD-QUESTION");
+  });
+});
+
+describe("slow models", () => {
+  it("benches a model that answered but took too long, so the next turn skips it", () => {
+    let t = 0;
+    const mk = (n: string) => ({ name: n, model: scriptedModel([{ text: "x" }]), cacheable: false });
+    const pool = new ModelPool([mk("slow"), mk("fast")], () => t);
+    pool.markOk("slow", 21_000);
+    expect(pool.ordered().map((e) => e.name)).toEqual(["fast", "slow"]);
+    t = 6 * 60_000;
+    expect(pool.ordered()[0]!.name).toBe("slow"); // recovers after five minutes
+    pool.markOk("slow", 3_000);                    // a fast turn clears any bench
+    expect(pool.ordered()[0]!.name).toBe("slow");
+  });
+  it("never benches the only model", () => {
+    const pool = new ModelPool([{ name: "only", model: scriptedModel([{ text: "x" }]), cacheable: false }]);
+    pool.markOk("only", 60_000);
+    expect(pool.ordered()[0]!.name).toBe("only");
+  });
+});
+
+describe("deadlines", () => {
+  const withTimeouts = (pool: ModelPool, timeouts: object, signal?: AbortSignal) =>
+    collect(runAgent(
+      { models: pool, provider: fakeProvider(), store, cache: new TtlCache<any>(10, 1000), timeouts },
+      { sessionId: "s", message: "q", tz: "UTC", now: NOW, signal },
+    ));
+
+  it("abandons a model that never answers and fails over within the deadline, instead of hanging for a minute", async () => {
+    const { hangingModel } = await import("./helpers.js");
+    const started = performance.now();
+    const events = await withTimeouts(new ModelPool([
+      { name: "stuck", model: hangingModel(), cacheable: false },
+      { name: "good", model: scriptedModel([{ text: "Answered promptly." }]), cacheable: false },
+    ]), { firstChunkMs: 150, lastResortFirstChunkMs: 5_000 });
+    expect(performance.now() - started).toBeLessThan(3_000);
+    expect(events.at(-1)).toMatchObject({ type: "done", metrics: { model: "good" } });
+    expect((events.at(-1) as any).metrics.fallbacks[0].model).toBe("stuck");
+    expect(store.sessionMessages("s")).toHaveLength(2);
+  });
+
+  it("a deadline hit is reported as a failure, not mistaken for the user cancelling", async () => {
+    const { hangingModel } = await import("./helpers.js");
+    const events = await withTimeouts(new ModelPool([{ name: "stuck", model: hangingModel(), cacheable: false }]), { lastResortFirstChunkMs: 150 });
+    expect(events.at(-1)).toMatchObject({ type: "error" }); // an error the UI can show, not a silent empty turn
+  });
+
+  it("still treats a real user abort as silent", async () => {
+    const { hangingModel } = await import("./helpers.js");
+    const ctrl = new AbortController();
+    const p = withTimeouts(new ModelPool([{ name: "stuck", model: hangingModel(), cacheable: false }]), { lastResortFirstChunkMs: 5_000 }, ctrl.signal);
+    setTimeout(() => ctrl.abort(), 50);
+    const events = await p;
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(store.sessionMessages("s")).toHaveLength(0);
+  });
+});
+
+describe("short rate limits and timeouts", () => {
+  const limited = (msg: string) => Object.assign(new Error(msg), { statusCode: 429 });
+
+  it("waits out a rate limit that resets in seconds and retries the SAME model, instead of cascading to slower ones", async () => {
+    const slept: number[] = [];
+    const first = scriptedModel([{ error: limited("Rate limit reached. Please try again in 2.4s.") }, { text: "Answered after a short wait." }]);
+    const second = scriptedModel([{ text: "should never be used" }]);
+    const events = await collect(runAgent(
+      { models: new ModelPool([{ name: "groq:fast", model: first, cacheable: false }, { name: "google:slow", model: second, cacheable: false }]),
+        provider: fakeProvider(), store, sleep: async (ms) => { slept.push(ms); } },
+      { sessionId: "s", message: "q", tz: "UTC", now: NOW },
+    ));
+    expect(slept).toEqual([2700]);
+    expect(events.at(-1)).toMatchObject({ type: "done", metrics: { model: "groq:fast", fallbacks: [] } });
+    expect(second.doStreamCalls).toHaveLength(0);
+    expect(events.some((e) => e.type === "status" && /busy, retrying in 3s/.test(e.text))).toBe(true);
+  });
+
+  it("does this only once per turn, and never for long resets", async () => {
+    const slept: number[] = [];
+    const a = scriptedModel([{ error: limited("try again in 1s") }]);        // always limited
+    const b = scriptedModel([{ error: limited("retry in 120s") }]);          // hint too long: no waiting
+    const c = scriptedModel([{ text: "fine" }]);
+    const events = await collect(runAgent(
+      { models: new ModelPool([{ name: "a", model: a, cacheable: false }, { name: "b", model: b, cacheable: false }, { name: "c", model: c, cacheable: false }]),
+        provider: fakeProvider(), store, sleep: async (ms) => { slept.push(ms); } },
+      { sessionId: "s", message: "q", tz: "UTC", now: NOW },
+    ));
+    expect(slept).toEqual([1300]);                 // one wait, for a only
+    expect(a.doStreamCalls).toHaveLength(2);       // a: first try + the single retry
+    expect(events.at(-1)).toMatchObject({ type: "done", metrics: { model: "c" } });
+  });
+
+  it("benches a model that timed out for minutes, not seconds, so the next turn skips it", () => {
+    let t = 0;
+    const mk = (n: string) => ({ name: n, model: scriptedModel([{ text: "x" }]), cacheable: false });
+    const pool = new ModelPool([mk("stuck"), mk("ok")], () => t);
+    pool.markFailed("stuck", Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }));
+    t = 4 * 60_000;
+    expect(pool.ordered()[0]!.name).toBe("ok");
+    t = 6 * 60_000;
+    expect(pool.ordered()[0]!.name).toBe("stuck");
   });
 });

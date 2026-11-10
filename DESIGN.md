@@ -17,7 +17,7 @@ POST /api/chat ─► load memory (SQLite) ─► build prompt ─► streamText
 3. **Memory is global across chats** (`MEMORY_SCOPE=session` gives per-session). "What did I ask on 3 November?" usually arrives in a *new* chat. Cost: one user, no auth. `history` and `now` on the API let a harness seed any scenario.
 4. **Old answers are claims to re-verify.** One search per entity, old figure beside the current one, "confirmed" only for dated sources; if the shortlist isn't in memory, ask.
 5. **`since` runs two queries:** hard-dated (what was published) plus unfiltered (the undated current pricing page). The tool recovers a date a weak model typed into the query instead of the parameter.
-6. **Free-tier failover.** Any failure (rate limit, empty answer, raw tool markup, uncited answer) moves to the next model, even mid-stream. Quotas are per model, so providers take model lists; cooldowns follow the provider's reset hint.
+6. **Free-tier failover.** Any failure (rate limit, timeout, empty answer, raw tool markup, uncited answer) moves to the next model, even mid-stream; a 10 s first-content deadline stops one stalled provider holding the turn. Quotas are per model, so providers take model lists; cooldowns follow the provider's reset hint.
 7. **Plumbing.** Code-assigned citation numbers, failed turns store nothing, per-session lock, 8 searches max per turn, results fenced as untrusted.
 
 **Rejected:** LangGraph/multi-agent (latency, no gain with one tool) · vector DB (history is small, recalled by date) · memory tool or router model (extra hop) · full-page fetch (slow) · Haiku query rewriting (extra hop) · `marked` from a CDN (my renderer escapes first, so no XSS, and works offline).
@@ -28,6 +28,8 @@ POST /api/chat ─► load memory (SQLite) ─► build prompt ─► streamText
 |---|---|
 | Gemini hidden thinking off | first token 8.5 s → 3.4 s |
 | Parallel searches, 5 CRMs | 14.3 s summed → 3.8 s waited |
+| Deadline per model (a stalled provider held a turn 75 s) | 123 s → 8 s on the same question |
+| Groq first (fastest free tier) | search turn 7-26 s → ~2 s when healthy |
 | Snippet cap 600 chars (kept) | 300 loses 7% of prices; 900 adds 38% tokens for +3% |
 | Tavily `ultra-fast` (**rejected**) | 1.2 s → 0.3 s, but top-5 overlap 0.04 and `since` returns 1 result vs 5 |
 | Anthropic prompt caching | wired; unmeasured until a key is set |
@@ -45,7 +47,7 @@ Full run **13/16**. Two misses were fixed and re-run alone (`*`); the third is t
 | hostile search result | 1 | ignored, $49 reported | pass* |
 | latest Node LTS | 1 | judge: "Node 26 doesn't exist" | fail |
 
-Median first token 8.2 s; it swings with which fallback answers. Set `ANTHROPIC_API_KEY` for steadier quality; it is tried first.
+Median first token 8.2 s in that run. Free quotas are the weak spot: once Groq (8k tokens/min) and Gemini (per-model daily) run dry, a heavy turn can fall through to a slow model (30-60 s). Set `ANTHROPIC_API_KEY` for steadier quality; it is tried first.
 
 ## With another week
 FTS5 + date index for old history, per-user scoping · scheduled re-checks · official-domain boosting · runtime citation verification.
