@@ -6,18 +6,32 @@ Monday, which tools you meant, and what it told you then.
 
 ```bash
 npm install
-cp .env.example .env     # add ANTHROPIC_API_KEY and TAVILY_API_KEY
+cp .env.example .env     # add TAVILY_API_KEY plus at least one model key
 npm run dev              # http://localhost:3000
 ```
 
-Keys: [Anthropic console](https://console.anthropic.com) and [Tavily](https://app.tavily.com) (free tier: 1,000 searches/month).
+## Keys (all free except Anthropic)
+
+| Key | Where | Notes |
+|---|---|---|
+| `TAVILY_API_KEY` (required) | [app.tavily.com](https://app.tavily.com) | web search; free tier, no card |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Gemini free tier |
+| `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys) | free tier, very fast |
+| `OPENROUTER_API_KEY` | [openrouter.ai/keys](https://openrouter.ai/keys) | free models via `openrouter/free` |
+| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) | paid; best quality, tried first if set |
+
+Set at least one model key. The agent tries providers in order (`LLM_ORDER`); when one is rate-limited, down or
+rejects a request it switches to the next mid-turn, and skips the failed one for a cooldown (about 60 s for rate
+limits). The default order is Anthropic, Gemini, Groq, OpenRouter, restricted to the keys you set. Free-tier
+limits change, so check each provider's dashboard. Answer quality follows the model: expect the paid and Gemini
+tiers to follow the date and re-verification rules most reliably.
 
 | Command | What it does |
 |---|---|
 | `npm run dev` | server with reload |
-| `npm test` | 67 unit and integration tests, no keys or network needed |
+| `npm test` | 83 unit and integration tests, no keys or network needed |
 | `npm run typecheck` | strict TypeScript |
-| `npm run eval` | 16 end-to-end cases against the real model and search, writes `evals/results.md` (needs keys) |
+| `npm run eval` | 16 end-to-end cases against the real models and search, writes `evals/results.md` (needs keys) |
 
 Design, trade-offs and what's next: [DESIGN.md](DESIGN.md).
 

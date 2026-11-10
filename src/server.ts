@@ -1,4 +1,3 @@
-import { createAnthropic } from "@ai-sdk/anthropic";
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -7,6 +6,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { runAgent, type AgentDeps, type AgentEvent } from "./agent/run.js";
+import { buildPool } from "./agent/models.js";
 import { isValidTimezone } from "./agent/temporal.js";
 import { loadConfig } from "./config.js";
 import { KeyedLock } from "./lib/keyedLock.js";
@@ -122,14 +122,15 @@ function finalAnswer(events: AgentEvent[]): string {
 
 function main() {
   const cfg = loadConfig();
+  const models = buildPool(cfg);
   const app = createApp({
-    model: createAnthropic({ apiKey: cfg.anthropicKey })(cfg.model),
+    models,
     provider: new TavilyProvider(cfg.tavilyKey),
     store: new Store(cfg.dbPath),
     defaultTz: cfg.defaultTz,
   });
   serve({ fetch: app.fetch, port: cfg.port }, (info) =>
-    console.log(`Minimi is running at http://localhost:${info.port}  (model: ${cfg.model})`),
+    console.log(`Minimi is running at http://localhost:${info.port}\nModel order: ${models.names.join(" -> ")}`),
   );
 }
 

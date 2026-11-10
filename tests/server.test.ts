@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ModelPool } from "../src/agent/models.js";
 import { createApp } from "../src/server.js";
 import { Store } from "../src/store/db.js";
 import { fakeProvider, scriptedModel } from "./helpers.js";
@@ -6,7 +7,7 @@ import { fakeProvider, scriptedModel } from "./helpers.js";
 const make = (steps: Parameters<typeof scriptedModel>[0]) => {
   const model = scriptedModel(steps);
   const store = new Store(":memory:");
-  return { app: createApp({ model, provider: fakeProvider(), store, defaultTz: "UTC" }), model, store };
+  return { app: createApp({ models: ModelPool.single(model), provider: fakeProvider(), store, defaultTz: "UTC" }), model, store };
 };
 const post = (app: ReturnType<typeof make>["app"], body: object, headers: Record<string, string> = {}) =>
   app.request("/api/chat", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });

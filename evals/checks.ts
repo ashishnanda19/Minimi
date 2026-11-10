@@ -21,7 +21,7 @@ export function checkCase(c: Case, events: AgentEvent[], seen: { title: string; 
 
   const failures: string[] = [];
   if (err || !done) failures.push(`run failed: ${err?.message ?? "no done event"}`);
-  const metrics: Metrics = done?.metrics ?? { ttftMs: null, totalMs: 0, steps: 0, searches: [] };
+  const metrics: Metrics = done?.metrics ?? { model: "", fallbacks: [], ttftMs: null, totalMs: 0, steps: 0, searches: [] };
   const ex = c.expect;
 
   const searched = metrics.searches.length > 0;

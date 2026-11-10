@@ -188,19 +188,35 @@ export interface SearchToolDeps extends WebSearchDeps {
   registry: SourceRegistry;
 }
 
+/**
+ * What the provider sees is deliberately plain (no regex, defaults or length bounds): Gemini accepts only a
+ * subset of JSON Schema, and a schema one provider rejects would break failover. Real validation is below.
+ */
+const toolInput = z.object({
+  query: z.string().describe("Focused search query, at most 12 words"),
+  since: z.string().optional().describe("YYYY-MM-DD from the calendar; only for 'what changed since' questions"),
+  topic: z.enum(["general", "news"]).optional(),
+  maxResults: z.number().optional().describe("1-8, default 5"),
+});
+
+const strictArgs = z.object({
+  query: z.string().trim().min(2).max(300),
+  since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "since must be YYYY-MM-DD").optional(),
+  topic: z.enum(["general", "news"]).default("general"),
+  maxResults: z.number().int().min(1).max(8).default(5),
+});
+
 export function createSearchTool(deps: SearchToolDeps) {
   return tool({
     description: TOOL_DESCRIPTION,
-    inputSchema: z.object({
-      query: z.string().min(2).max(300),
-      since: z
-        .string()
-        .regex(/^\d{4}-\d{2}-\d{2}$/, "since must be YYYY-MM-DD")
-        .optional(),
-      topic: z.enum(["general", "news"]).default("general"),
-      maxResults: z.number().int().min(1).max(8).default(5),
-    }),
-    execute: async (args, { abortSignal }) => {
+    inputSchema: toolInput,
+    execute: async (raw, { abortSignal }) => {
+      const parsed = strictArgs.safeParse({ ...raw, maxResults: raw.maxResults && Math.round(raw.maxResults) });
+      if (!parsed.success) {
+        // Returned as a result (not thrown) so the model can correct the call and go again.
+        return `INVALID_ARGUMENTS: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`;
+      }
+      const args = parsed.data;
       const started = performance.now();
       const entry = { query: args.query, since: args.since, ms: 0, cached: false, results: 0 } as const;
       try {

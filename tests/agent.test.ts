@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { ModelPool } from "../src/agent/models.js";
 import { TtlCache } from "../src/lib/cache.js";
 import { runAgent, MAX_STEPS, type AgentEvent } from "../src/agent/run.js";
 import { Store } from "../src/store/db.js";
@@ -9,7 +10,7 @@ const TZ = "Asia/Kolkata";
 let store: Store;
 beforeEach(() => { store = new Store(":memory:"); });
 
-const deps = (model: ReturnType<typeof scriptedModel>) => ({ model, provider: fakeProvider(), store, cache: new TtlCache<any>(10, 1000) });
+const deps = (model: ReturnType<typeof scriptedModel>) => ({ models: ModelPool.single(model), provider: fakeProvider(), store, cache: new TtlCache<any>(10, 1000) });
 const base = { sessionId: "s1", tz: TZ, now: NOW };
 
 describe("agent loop", () => {

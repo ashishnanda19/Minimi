@@ -7,7 +7,7 @@ correctness and conversational quality. Reviewers read the code and DESIGN.md.
 - TypeScript on Node >=20. `npm install` then `npm run dev` must work with no extra steps.
 - Exactly ONE agent tool: `web_search`. Memory/history/time are handled in server code and
   injected into the prompt. They are never tools.
-- Stack: Vercel AI SDK (`ai` v7, `@ai-sdk/anthropic`), Hono, better-sqlite3, zod, vitest.
+- Stack: Vercel AI SDK (`ai` v7) with a failover `ModelPool` over Gemini, Groq, OpenRouter and optionally Anthropic (all free except Anthropic), Hono, better-sqlite3, zod, vitest.
 - Every env var is listed in `.env.example`.
 - Small files, one responsibility each, no dead code. Comments only for non-obvious "why".
 
@@ -21,5 +21,5 @@ correctness and conversational quality. Reviewers read the code and DESIGN.md.
 - `npm run dev` / `npm test` / `npm run typecheck` / `npm run eval` (needs real keys)
 
 ## Layout
-src/server.ts, src/config.ts, src/agent/{run,prompt,temporal,memory,sources}.ts,
+src/server.ts, src/config.ts, src/agent/{run,prompt,temporal,memory,sources,models}.ts,
 src/tools/search.ts, src/store/db.ts, src/lib/cache.ts, public/, evals/, tests/, DESIGN.md

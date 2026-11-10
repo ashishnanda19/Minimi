@@ -1,5 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { describe, expect, it } from "vitest";
+import { ModelPool } from "../src/agent/models.js";
 import { runAgent } from "../src/agent/run.js";
 import { Store } from "../src/store/db.js";
 import { collect, fakeProvider } from "./helpers.js";
@@ -40,7 +41,7 @@ describe("what we actually send to Anthropic", () => {
 
     const model = createAnthropic({ apiKey: "test", fetch: fetchStub })("claude-sonnet-5-5");
     const store = new Store(":memory:");
-    const events = await collect(runAgent({ model, provider: fakeProvider(), store }, {
+    const events = await collect(runAgent({ models: ModelPool.single(model, "anthropic", true), provider: fakeProvider(), store }, {
       sessionId: "s", message: "compare", tz: "UTC", now: new Date("2026-11-10T13:15:00Z"),
     }));
 
@@ -71,7 +72,7 @@ describe("what we actually send to Anthropic", () => {
     const replies = [toolTurn(["a one"]), toolTurn(["b two"]), textTurn("Done.")];
     const fetchStub = (async (_u: unknown, init: RequestInit) => { bodies.push(JSON.parse(init.body as string)); return replies.shift()!; }) as typeof fetch;
     const model = createAnthropic({ apiKey: "test", fetch: fetchStub })("claude-sonnet-5-5");
-    await collect(runAgent({ model, provider: fakeProvider(), store: new Store(":memory:") }, {
+    await collect(runAgent({ models: ModelPool.single(model, "anthropic", true), provider: fakeProvider(), store: new Store(":memory:") }, {
       sessionId: "s", message: "q", tz: "UTC", now: new Date("2026-11-10T13:15:00Z"),
     }));
     expect(bodies).toHaveLength(3);

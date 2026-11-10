@@ -1,0 +1,82 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGroq } from "@ai-sdk/groq";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import type { LanguageModel } from "ai";
+import type { Config, ProviderName } from "../config.js";
+
+export interface PoolEntry {
+  name: string;
+  model: LanguageModel;
+  /** Only Anthropic understands cache_control; other providers get one plain system string. */
+  cacheable: boolean;
+}
+
+const COOLDOWN_MS = { rateLimited: 60_000, auth: 10 * 60_000, other: 30_000 };
+
+export const statusOf = (err: unknown): number | undefined => {
+  const e = err as { statusCode?: number; lastError?: { statusCode?: number } };
+  return e?.statusCode ?? e?.lastError?.statusCode; // the SDK wraps exhausted retries in a RetryError
+};
+
+/**
+ * Ordered list of models with failover. When a provider fails (rate limit, outage, bad key,
+ * missing tool support) it is benched for a cooldown, so the *next* request goes straight to a
+ * healthy one instead of paying for a doomed call first. Benched providers are still tried last
+ * rather than never, so a total outage degrades to "try everything" and not "refuse everything".
+ */
+export class ModelPool {
+  private readonly benchedUntil = new Map<string, number>();
+
+  constructor(
+    private readonly entries: PoolEntry[],
+    private readonly clock: () => number = Date.now,
+  ) {
+    if (!entries.length) throw new Error("ModelPool needs at least one model");
+  }
+
+  static single(model: LanguageModel, name = "primary", cacheable = false): ModelPool {
+    return new ModelPool([{ name, model, cacheable }]);
+  }
+
+  /** Healthy providers in configured order, then benched ones by soonest recovery. */
+  ordered(): PoolEntry[] {
+    const now = this.clock();
+    const until = (e: PoolEntry) => this.benchedUntil.get(e.name) ?? 0;
+    const healthy = this.entries.filter((e) => until(e) <= now);
+    const benched = this.entries.filter((e) => until(e) > now).sort((a, b) => until(a) - until(b));
+    return [...healthy, ...benched];
+  }
+
+  markFailed(name: string, err: unknown): void {
+    const status = statusOf(err);
+    const ms = status === 429 ? COOLDOWN_MS.rateLimited
+      : status === 401 || status === 403 || status === 404 ? COOLDOWN_MS.auth
+      : COOLDOWN_MS.other;
+    this.benchedUntil.set(name, this.clock() + ms);
+  }
+
+  markOk(name: string): void {
+    this.benchedUntil.delete(name);
+  }
+
+  get names(): string[] {
+    return this.entries.map((e) => e.name);
+  }
+}
+
+export function buildPool(cfg: Config): ModelPool {
+  const make: Record<ProviderName, (key: string, id: string) => LanguageModel> = {
+    anthropic: (key, id) => createAnthropic({ apiKey: key })(id),
+    google: (key, id) => createGoogleGenerativeAI({ apiKey: key })(id),
+    groq: (key, id) => createGroq({ apiKey: key })(id),
+    openrouter: (key, id) => createOpenRouter({ apiKey: key }).chat(id),
+  };
+  return new ModelPool(
+    cfg.order.map((p) => ({
+      name: `${p}:${cfg.models[p]}`,
+      model: make[p](cfg.keys[p]!, cfg.models[p]),
+      cacheable: p === "anthropic",
+    })),
+  );
+}

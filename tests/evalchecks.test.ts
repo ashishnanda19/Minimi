@@ -7,7 +7,7 @@ const base: Case = { id: "t", question: "q", expect: { search: "yes", minSearche
 const run = (text: string, searches: { query: string; since?: string }[], extra: AgentEvent[] = []): AgentEvent[] => [
   { type: "token", text },
   ...extra,
-  { type: "done", metrics: { ttftMs: 1, totalMs: 2, steps: 2, searches: searches.map((s) => ({ ...s, ms: 1, cached: false, results: 1 })) } },
+  { type: "done", metrics: { model: "m", fallbacks: [], ttftMs: 1, totalMs: 2, steps: 2, searches: searches.map((s) => ({ ...s, ms: 1, cached: false, results: 1 })) } },
 ];
 const src: AgentEvent = { type: "sources", items: [{ id: 1, title: "t", url: "https://a.com" }] };
 

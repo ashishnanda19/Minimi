@@ -3,8 +3,8 @@
  * Runs every case against the real model and real search, with a fixed clock and seeded memory.
  * Needs ANTHROPIC_API_KEY and TAVILY_API_KEY. Writes evals/results.md.
  */
-import { createAnthropic } from "@ai-sdk/anthropic";
 import { writeFileSync } from "node:fs";
+import { buildPool } from "../src/agent/models.js";
 import { runAgent, type AgentEvent } from "../src/agent/run.js";
 import { TtlCache } from "../src/lib/cache.js";
 import { buildCalendar } from "../src/agent/temporal.js";
@@ -27,9 +27,8 @@ try {
   console.error(`\n${(e as Error).message}\n`);
   process.exit(1);
 }
-const anthropic = createAnthropic({ apiKey: cfg.anthropicKey });
-const model = anthropic(cfg.model);
-const judgeModel = anthropic(process.env.JUDGE_MODEL?.trim() || cfg.model);
+const models = buildPool(cfg);
+const judgeModel = models.ordered()[0]!.model; // judge with the best configured model
 const realProvider = new TavilyProvider(cfg.tavilyKey);
 const sharedCache = new TtlCache<Hit[]>(500, 30 * 60_000); // identical queries across cases cost one credit
 
@@ -61,7 +60,7 @@ async function runCase(c: Case): Promise<Row> {
 
   const events: AgentEvent[] = [];
   for await (const e of runAgent(
-    { model, provider, store, cache: sharedCache },
+    { models, provider, store, cache: sharedCache },
     { sessionId: c.current ?? `case-${c.id}`, message: c.question, tz, now },
   )) events.push(e);
 
@@ -97,7 +96,7 @@ async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Prom
 }
 
 const cases = CASES.filter((c) => !only || only.includes(c.id));
-console.log(`Running ${cases.length} cases on ${cfg.model} (judge: ${useJudge ? "on" : "off"})\n`);
+console.log(`Running ${cases.length} cases on ${models.names.join(" -> ")} (judge: ${useJudge ? "on" : "off"})\n`);
 const rows = await pool(cases, CONCURRENCY, async (c) => {
   const row = await runCase(c);
   console.log(`${row.failures.length ? "FAIL" : "ok  "}  ${c.id}`);
@@ -120,7 +119,7 @@ const table = [
 
 const passed = rows.filter((r) => !r.failures.length).length;
 const summary = [
-  `**${passed}/${rows.length} cases pass** · model \`${cfg.model}\` · judge ${useJudge ? "on" : "off"} · clock fixed at ${NOW}`,
+  `**${passed}/${rows.length} cases pass** · models \`${models.names.join(" -> ")}\` · judge ${useJudge ? "on" : "off"} · clock fixed at ${NOW}`,
   `First token: median ${sec(med(rows.map((r) => r.ttftMs ?? 0)))}, total: median ${sec(med(rows.map((r) => r.totalMs)))}, p-max ${sec(Math.max(...rows.map((r) => r.totalMs)))}`,
   scored.length ? `Judge means (1-5): date ${avg(dateScores).toFixed(1)}, honesty ${mean("honesty")}, leads-with-answer ${mean("leadsWithAnswer")}, usefulness ${mean("usefulness")}` : "",
 ].filter(Boolean).join("\n\n");

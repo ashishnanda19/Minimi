@@ -33,7 +33,7 @@ Cite with [n] immediately after the claim, using only the numbers in this turn's
 # 7. Style
 Lead with the answer in the first sentence. Then give only the detail that changes the user's decision. Stay under about 180 words unless asked for more. Use a compact table only when comparing 3+ entities on the same attributes; otherwise short prose or a tight list. No filler openers, no recap, no apologies, no talk of "my tools" or "the search results" unless it matters. If you could not verify something, say so in one clause and move on. If the request is ambiguous in a way that matters, ask one specific question instead of guessing. End when the answer ends; add one concrete follow-up offer only if it is genuinely useful.`;
 
-export function buildSystem(now: Date, tz: string, ledger: string): SystemModelMessage[] {
+export function buildSystem(now: Date, tz: string, ledger: string, cacheable: boolean): SystemModelMessage[] {
   const dynamic = [
     "# Now",
     nowContext(now, tz),
@@ -45,6 +45,9 @@ export function buildSystem(now: Date, tz: string, ledger: string): SystemModelM
     ledger || "(none: this is the user's first conversation)",
   ].join("\n");
 
+  // Anthropic: two blocks, the stable one marked cacheable. Everyone else: one plain string
+  // (several providers accept only a single system instruction).
+  if (!cacheable) return [{ role: "system", content: `${RULES}\n\n${dynamic}` }];
   return [
     { role: "system", content: RULES, providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } },
     { role: "system", content: dynamic },

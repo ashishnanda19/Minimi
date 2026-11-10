@@ -1,17 +1,20 @@
-import { stepCountIs, streamText, type LanguageModel } from "ai";
+import { stepCountIs, streamText } from "ai";
 import { TtlCache } from "../lib/cache.js";
 import { createSearchTool, type Hit, type SearchProvider } from "../tools/search.js";
 import type { SourceRef, Store } from "../store/db.js";
 import { buildLedger, splitMemory, toModelMessages } from "./memory.js";
+import type { ModelPool, PoolEntry } from "./models.js";
 import { buildSystem } from "./prompt.js";
 import { SourceRegistry, type SearchLogEntry } from "./sources.js";
 
 /** Round 1 searches, round 2 only if something unexpected turned up, last round must be the answer. */
 export const MAX_STEPS = 3;
 const MAX_OUTPUT_TOKENS = 2_500;
+// Exhausted providers fail over immediately; only the last candidate is worth the SDK's own backoff-and-retry.
+const LAST_RESORT_RETRIES = 2;
 
 export interface AgentDeps {
-  model: LanguageModel;
+  models: ModelPool;
   provider: SearchProvider;
   store: Store;
   cache?: TtlCache<Hit[]>;
@@ -34,6 +37,9 @@ export interface RunInput {
 }
 
 export interface Metrics {
+  /** Which model produced the answer, and which ones failed before it. */
+  model: string;
+  fallbacks: { model: string; error: string }[];
   ttftMs: number | null;
   totalMs: number;
   steps: number;
@@ -58,9 +64,77 @@ export function friendlyError(err: unknown): string {
 
 const defaultCache = new TtlCache<Hit[]>(200, 10 * 60_000);
 
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err)).slice(0, 200);
+
+interface Attempt {
+  answer: string;
+  sources: SourceRef[];
+  steps: number;
+  ttftMs: number | null;
+  searches: SearchLogEntry[];
+}
+
+/** One full agent run on one model. Throws on any model/provider failure so the caller can fail over. */
+async function* attempt(
+  entry: PoolEntry, isLast: boolean, ctx: { provider: SearchProvider; cache: TtlCache<Hit[]>; started: number },
+  prompt: { system: ReturnType<typeof buildSystem>; messages: ReturnType<typeof toModelMessages> },
+  signal: AbortSignal | undefined,
+): AsyncGenerator<AgentEvent, Attempt | undefined> {
+  const registry = new SourceRegistry(); // fresh per attempt: a failed model's sources must not leak into the next
+  const result = streamText({
+    model: entry.model,
+    system: prompt.system,
+    messages: prompt.messages,
+    tools: { web_search: createSearchTool({ provider: ctx.provider, cache: ctx.cache, registry }) },
+    stopWhen: stepCountIs(MAX_STEPS),
+    // On the final step force prose, so a step cap can never end the turn on a dangling tool call.
+    prepareStep: ({ stepNumber }) => (stepNumber >= MAX_STEPS - 1 ? { toolChoice: "none" as const } : undefined),
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    maxRetries: isLast ? LAST_RESORT_RETRIES : 0,
+    abortSignal: signal,
+    onError: () => {}, // surfaced below via the stream's error part
+  });
+
+  let answer = "";
+  let stepText = "";
+  let steps = 0;
+  let ttftMs: number | null = null;
+
+  for await (const part of result.fullStream) {
+    if (part.type === "text-delta") {
+      ttftMs ??= performance.now() - ctx.started;
+      stepText += part.text;
+      yield { type: "token", text: part.text };
+    } else if (part.type === "tool-call") {
+      yield { type: "status", text: `Searching: ${(part.input as { query?: string }).query ?? ""}` };
+    } else if (part.type === "finish-step") {
+      steps++;
+      if (part.finishReason === "tool-calls") {
+        if (stepText) yield { type: "reset" };
+      } else {
+        answer += stepText;
+        if (part.finishReason === "length") {
+          const note = "\n\n_(Answer cut off at the length limit. Ask me to continue.)_";
+          answer += note;
+          yield { type: "token", text: note };
+        }
+      }
+      stepText = "";
+    } else if (part.type === "error") {
+      throw part.error;
+    } else if (part.type === "abort") {
+      return undefined;
+    }
+  }
+  if (signal?.aborted) return undefined;
+  // A weak model that returns nothing is a provider failure like any other: try the next one.
+  if (!answer.trim()) throw new Error("model returned an empty answer");
+  return { answer, sources: registry.cited(answer), steps, ttftMs, searches: registry.log };
+}
+
 export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerator<AgentEvent> {
   const started = performance.now();
-  const { store, model, provider, cache = defaultCache } = deps;
+  const { store, models, provider, cache = defaultCache } = deps;
   const { sessionId, message, tz, now, signal } = input;
 
   try {
@@ -69,67 +143,48 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
       store.addMessages(sessionId, input.history.map((h) => ({ role: h.role, content: h.content, createdAt: h.timestamp })));
     }
     const { live, earlier } = splitMemory(store.sessionMessages(sessionId), store.earlierMessages(sessionId, 400));
-    const registry = new SourceRegistry();
+    const ledger = buildLedger(earlier, now, tz);
+    const messages = toModelMessages(live, message, now, tz);
 
-    const result = streamText({
-      model,
-      system: buildSystem(now, tz, buildLedger(earlier, now, tz)),
-      messages: toModelMessages(live, message, now, tz),
-      tools: { web_search: createSearchTool({ provider, cache, registry }) },
-      stopWhen: stepCountIs(MAX_STEPS),
-      // On the final step force prose, so a step cap can never end the turn on a dangling tool call.
-      prepareStep: ({ stepNumber }) => (stepNumber >= MAX_STEPS - 1 ? { toolChoice: "none" as const } : undefined),
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
-      abortSignal: signal,
-      onError: () => {}, // surfaced below via the stream's error part
-    });
+    const candidates = models.ordered();
+    const fallbacks: Metrics["fallbacks"] = [];
+    let outcome: Attempt | undefined;
+    let used = "";
 
-    let answer = "";
-    let stepText = "";
-    let steps = 0;
-    let ttftMs: number | null = null;
-
-    for await (const part of result.fullStream) {
-      if (part.type === "text-delta") {
-        ttftMs ??= performance.now() - started;
-        stepText += part.text;
-        yield { type: "token", text: part.text };
-      } else if (part.type === "tool-call") {
-        const q = (part.input as { query?: string }).query ?? "";
-        yield { type: "status", text: `Searching: ${q}` };
-      } else if (part.type === "finish-step") {
-        steps++;
-        if (part.finishReason === "tool-calls") {
-          if (stepText) yield { type: "reset" };
-        } else {
-          answer += stepText;
-          if (part.finishReason === "length") {
-            const note = "\n\n_(Answer cut off at the length limit. Ask me to continue.)_";
-            answer += note;
-            yield { type: "token", text: note };
-          }
-        }
-        stepText = "";
-      } else if (part.type === "error") {
-        throw part.error;
-      } else if (part.type === "abort") {
-        return;
+    for (const [i, entry] of candidates.entries()) {
+      const isLast = i === candidates.length - 1;
+      try {
+        const run = yield* attempt(entry, isLast, { provider, cache, started }, { system: buildSystem(now, tz, ledger, entry.cacheable), messages }, signal);
+        if (!run) return; // client aborted
+        models.markOk(entry.name);
+        outcome = run;
+        used = entry.name;
+        break;
+      } catch (err) {
+        if (signal?.aborted) return;
+        console.error(`[agent] ${entry.name} failed:`, errorText(err));
+        models.markFailed(entry.name, err);
+        fallbacks.push({ model: entry.name, error: errorText(err) });
+        if (isLast) throw err;
+        yield { type: "reset" }; // discard whatever the failed model had streamed
+        yield { type: "status", text: `${entry.name.split(":")[0]} unavailable, switching model` };
       }
     }
-    if (signal?.aborted) return;
-    if (!answer.trim()) throw new Error("model returned an empty answer");
+    if (!outcome) return;
 
     // floor, never round: the answer must not be stamped later than the instant the next queued turn can start.
     // Persist only a completed turn: a retry after a failure never duplicates the user's message.
-    const sources = registry.cited(answer);
     const totalMs = performance.now() - started;
     store.addMessages(sessionId, [
       { role: "user", content: message, createdAt: now },
-      { role: "assistant", content: answer, sources, createdAt: new Date(now.getTime() + Math.floor(totalMs)) },
+      { role: "assistant", content: outcome.answer, sources: outcome.sources, createdAt: new Date(now.getTime() + Math.floor(totalMs)) },
     ]);
 
-    if (sources.length) yield { type: "sources", items: sources };
-    yield { type: "done", metrics: { ttftMs, totalMs, steps, searches: registry.log } };
+    if (outcome.sources.length) yield { type: "sources", items: outcome.sources };
+    yield {
+      type: "done",
+      metrics: { model: used, fallbacks, ttftMs: outcome.ttftMs, totalMs, steps: outcome.steps, searches: outcome.searches },
+    };
   } catch (err) {
     if (signal?.aborted) return;
     console.error("[agent]", err);

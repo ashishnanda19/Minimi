@@ -121,9 +121,16 @@ describe("search tool", () => {
     const registry = new SourceRegistry();
     const provider = fakeProvider(async () => { throw new Error("rate limited"); });
     const tool = createSearchTool({ provider, cache: new TtlCache<Hit[]>(10, 1000), registry });
-    const out = await run(tool, { query: "q", topic: "general", maxResults: 5 });
+    const out = await run(tool, { query: "q two", topic: "general", maxResults: 5 });
     expect(out).toMatch(/^SEARCH_FAILED/);
     expect(registry.log[0]!.error).toBe("rate limited");
+  });
+
+  it("returns bad arguments to the model as a result it can correct, not an exception", async () => {
+    const tool = createSearchTool({ provider: fakeProvider(async () => []), cache: new TtlCache<Hit[]>(1, 1), registry: new SourceRegistry() });
+    expect(await run(tool, { query: "hubspot pricing", since: "last monday" })).toMatch(/^INVALID_ARGUMENTS.*YYYY-MM-DD/);
+    expect(await run(tool, { query: "x" })).toMatch(/^INVALID_ARGUMENTS/);
+    expect(await run(tool, { query: "valid query", maxResults: 99 })).toMatch(/^INVALID_ARGUMENTS/);
   });
 
   it("strips a fake closing tag so web text cannot break out of the fence", () => {
