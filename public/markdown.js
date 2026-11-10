@@ -20,13 +20,13 @@ function inline(text, sources) {
     return `\u0000${stash.length - 1}\u0000`;
   });
   s = esc(s);
-  s = s.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-    (_, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`,
-  );
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => {
+    stash.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    return `\u0000${stash.length - 1}\u0000`;
+  });
   s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
-  s = s.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_, list) =>
+  s = s.replace(/\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]/g, (_, list) =>
     list
       .split(",")
       .map((n) => {

@@ -24,7 +24,7 @@ const chatBody = z.object({
     .array(z.object({
       role: z.enum(["user", "assistant"]),
       content: z.string().min(1).max(8_000),
-      timestamp: z.iso.datetime({ offset: true }),
+      timestamp: z.union([z.string(), z.number()]).optional(), // ISO, date-only or unix ms; spaced back from now if absent
     }))
     .max(200)
     .optional(),
@@ -68,11 +68,12 @@ export function createApp(deps: AgentDeps & { defaultTz: string }) {
     const input = () => ({
       sessionId, tz, message: b.message,
       now: b.now ? new Date(b.now) : new Date(),
-      history: b.history?.map((h) => ({ role: h.role, content: h.content, timestamp: new Date(h.timestamp) })),
+      history: b.history && seedHistory(b.history, b.now ? new Date(b.now) : new Date()),
     });
 
-    // Scripted clients can ask for one JSON document instead of a stream.
-    if (c.req.query("stream") === "false" || c.req.header("accept")?.includes("application/json")) {
+    // JSON is the default (curl, scripts, harnesses); the UI opts into streaming with Accept: text/event-stream.
+    const wantsStream = c.req.query("stream") === "true" || c.req.header("accept")?.includes("text/event-stream");
+    if (!wantsStream) {
       const events = await lock.run(sessionId, async () => {
         const out: AgentEvent[] = [];
         for await (const e of runAgent(deps, { ...input(), signal: c.req.raw.signal })) out.push(e);
@@ -98,6 +99,15 @@ export function createApp(deps: AgentDeps & { defaultTz: string }) {
   });
 
   return app;
+}
+
+/** Accepts whatever a harness sends for timestamps; unparseable or missing ones are spaced one minute apart before `now`. */
+function seedHistory(items: z.infer<typeof chatBody>["history"] & object, now: Date) {
+  return items.map((h, i) => {
+    const parsed = h.timestamp === undefined ? NaN : new Date(h.timestamp).getTime();
+    const ts = Number.isFinite(parsed) ? new Date(parsed) : new Date(now.getTime() - (items.length - i) * 60_000);
+    return { role: h.role, content: h.content, timestamp: ts };
+  });
 }
 
 /** Rebuilds the final answer text from events, honouring `reset` (discarded preamble). */

@@ -8,7 +8,7 @@ import { SourceRegistry, type SearchLogEntry } from "./sources.js";
 
 /** Round 1 searches, round 2 only if something unexpected turned up, last round must be the answer. */
 export const MAX_STEPS = 3;
-const MAX_OUTPUT_TOKENS = 1_500;
+const MAX_OUTPUT_TOKENS = 2_500;
 
 export interface AgentDeps {
   model: LanguageModel;
@@ -103,6 +103,11 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
           if (stepText) yield { type: "reset" };
         } else {
           answer += stepText;
+          if (part.finishReason === "length") {
+            const note = "\n\n_(Answer cut off at the length limit. Ask me to continue.)_";
+            answer += note;
+            yield { type: "token", text: note };
+          }
         }
         stepText = "";
       } else if (part.type === "error") {

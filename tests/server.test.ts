@@ -22,7 +22,7 @@ function parseSse(text: string) {
 describe("POST /api/chat", () => {
   it("streams session, status, token, sources and done events", async () => {
     const { app } = make([{ tools: [{ input: { query: "hubspot pricing" } }] }, { text: "It costs $20 [1]." }]);
-    const res = await post(app, { sessionId: "abc", message: "price?" });
+    const res = await post(app, { sessionId: "abc", message: "price?" }, { accept: "text/event-stream" });
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const events = parseSse(await res.text());
     expect(events.map((e) => e.event)).toEqual(["session", "status", "token", "sources", "done"]);
@@ -30,9 +30,9 @@ describe("POST /api/chat", () => {
     expect(events[3]!.data.items[0].url).toContain("example.com");
   });
 
-  it("returns one JSON document when asked", async () => {
+  it("returns one JSON document by default (a plain POST works for scripts and harnesses)", async () => {
     const { app } = make([{ text: "Hello." }]);
-    const res = await post(app, { message: "hi" }, { accept: "application/json" });
+    const res = await post(app, { message: "hi" });
     const body = await res.json();
     expect(body).toMatchObject({ answer: "Hello.", sources: [] });
     expect(body.sessionId).toMatch(/[0-9a-f-]{36}/);
@@ -74,6 +74,21 @@ describe("POST /api/chat", () => {
     }, { accept: "application/json" });
     const hist = await (await app.request("/api/history?sessionId=h")).json();
     expect(hist.messages.map((m: any) => m.content)).toEqual(["Shortlist: A, B", "now?", "ok"]);
+  });
+
+  it("accepts sloppy history: missing, date-only and unix-ms timestamps", async () => {
+    const { app, model } = make([{ text: "ok" }]);
+    const res = await post(app, {
+      message: "and now?", now: "2026-11-10T09:00:00Z",
+      history: [
+        { role: "user", content: "no timestamp" },
+        { role: "assistant", content: "date only", timestamp: "2026-11-09" },
+        { role: "user", content: "unix ms", timestamp: Date.parse("2026-11-09T12:00:00Z") },
+        { role: "assistant", content: "garbage", timestamp: "yesterday-ish" },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(model.doStreamCalls).toHaveLength(1);
   });
 
   it("serialises concurrent requests on one session (no interleaved history)", async () => {

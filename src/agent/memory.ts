@@ -6,7 +6,8 @@ import type { SourceRef, StoredMessage } from "../store/db.js";
 /** Last N messages of the current chat go in as real turns; anything older folds into the ledger. */
 export const MAX_LIVE_MESSAGES = 30;
 export const LEDGER_BUDGET_CHARS = 14_000; // ~3.5k tokens
-const LEDGER_ANSWER_CHARS = 700;
+const LEDGER_ANSWER_CHARS = 1_200; // older answers
+const RECENT_ANSWERS_KEPT_WHOLE = 6; // newest answers are the likeliest to be re-verified, so never clip them
 const LEDGER_QUESTION_CHARS = 500;
 const LIVE_MESSAGE_CHARS = 4_000;
 
@@ -32,10 +33,16 @@ export function buildLedger(earlierNewestFirst: StoredMessage[], now: Date, tz: 
   const lines: string[] = [];
   let used = 0;
   let omitted = false;
+  let answersSeen = 0;
+  const seen = new Set<string>();
   for (const m of earlierNewestFirst) {
+    const key = `${m.role}|${m.createdAt.getTime()}|${m.content}`;
+    if (seen.has(key)) continue; // same history seeded into several chats must not repeat
+    seen.add(key);
+    const answerLimit = answersSeen++ < RECENT_ANSWERS_KEPT_WHOLE ? LIVE_MESSAGE_CHARS : LEDGER_ANSWER_CHARS;
     const text = m.role === "user"
       ? clip(m.content, LEDGER_QUESTION_CHARS)
-      : clip(humanizeCitations(m.content, m.sources), LEDGER_ANSWER_CHARS);
+      : clip(humanizeCitations(m.content, m.sources), answerLimit);
     const when = `${formatStamp(m.createdAt, tz)}, ${relativeLabel(daysAgo(m.createdAt, now, tz))}`;
     const line = `[${when}] ${speaker(m)}: ${text.replace(/\n+/g, " ⏎ ")}`;
     if (used + line.length > LEDGER_BUDGET_CHARS) {

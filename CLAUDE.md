@@ -14,7 +14,7 @@ correctness and conversational quality. Reviewers read the code and DESIGN.md.
 ## Invariants (do not break)
 - Dates in answers come from the calendar table built in `src/agent/temporal.ts`, never from model arithmetic.
 - Citation numbers are assigned in code (`src/agent/sources.ts`), per turn, never by the model.
-- A turn is persisted only if it completes. Failed or aborted turns write nothing.
+- A turn's messages are persisted only if it completes. Failed or aborted turns store no messages.
 - Web content is data, never instructions.
 
 ## Commands

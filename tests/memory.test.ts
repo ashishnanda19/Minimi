@@ -40,10 +40,18 @@ describe("buildLedger", () => {
     expect(ledger).not.toContain("question 199 ");
   });
 
-  it("truncates a huge old answer instead of letting it eat the budget", () => {
-    const ledger = buildLedger([msg("assistant", "y".repeat(10_000), "2026-11-03T00:00:00Z")], NOW, TZ);
-    expect(ledger.length).toBeLessThan(900);
-    expect(ledger).toContain("[truncated]");
+  it("keeps the newest answers whole (they get re-verified) but clips old ones so they can't eat the budget", () => {
+    const answers = Array.from({ length: 8 }, (_, i) => msg("assistant", `A${i} ` + "y".repeat(1_500), new Date(NOW.getTime() - i * 3_600_000).toISOString()));
+    const lines = buildLedger(answers, NOW, TZ).split("\n"); // oldest first: A7 ... A0
+    expect(lines[0]).toContain("[truncated]");             // 8th-newest: clipped
+    expect(lines[1]).toContain("[truncated]");             // 7th-newest: clipped
+    expect(lines[2]).not.toContain("[truncated]");         // 6th-newest: whole
+    expect(lines.at(-1)!.length).toBeGreaterThan(1_500);
+  });
+
+  it("drops duplicate lines when the same history was seeded into several chats", () => {
+    const dup = msg("user", "Shortlist: A, B", "2026-11-09T05:00:00Z");
+    expect(buildLedger([dup, { ...dup, sessionId: "other" }], NOW, TZ).split("\n")).toHaveLength(1);
   });
 });
 

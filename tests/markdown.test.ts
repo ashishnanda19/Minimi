@@ -16,6 +16,12 @@ describe("renderMarkdown", () => {
     expect(html).toContain('<span class="cite">2</span>');
   });
 
+  it("keeps links intact when the URL contains [1], and ignores year-like brackets", () => {
+    const html = renderMarkdown("[x](https://a.com/p?x=[1]) and [2024]", sources);
+    expect(html.match(/<a /g)).toHaveLength(1);
+    expect(html).toContain("[2024]");
+  });
+
   it("renders tables", () => {
     const html = renderMarkdown("| Tool | Change |\n|---|---|\n| A | None |");
     expect(html).toContain("<th>Tool</th>");

@@ -216,7 +216,7 @@ async function send(retry = false) {
   try {
     const res = await fetch("/api/chat", {
       method: "POST", signal: controller.signal,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
       body: JSON.stringify({ sessionId, message: text, tz }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status})`);

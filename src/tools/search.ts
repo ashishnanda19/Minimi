@@ -35,7 +35,7 @@ export class TavilyProvider implements SearchProvider {
   constructor(private readonly apiKey: string, private readonly fetchImpl: typeof fetch = fetch) {}
 
   async search(req: SearchRequest): Promise<RawResult[]> {
-    const body = JSON.stringify({
+    const full = {
       query: req.query,
       topic: req.topic,
       search_depth: "basic", // "advanced" doubles latency for a marginal gain on pricing/news lookups
@@ -44,7 +44,10 @@ export class TavilyProvider implements SearchProvider {
       include_published_date: true, // off by default for topic "general"; "confirmed change" needs a dated source
       // filter_by_published_date makes start_date a hard filter instead of a ranking hint
       ...(req.since ? { start_date: req.since, filter_by_published_date: true } : {}),
-    });
+    };
+    // If the API ever rejects the optional flags (400/422), retry once with the bare documented minimum.
+    const minimal = { query: req.query, topic: req.topic, max_results: req.maxResults, ...(req.since ? { start_date: req.since } : {}) };
+    let body = JSON.stringify(full);
 
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -57,7 +60,14 @@ export class TavilyProvider implements SearchProvider {
           body,
           signal,
         });
-        if (res.status >= 500) throw new Error(`Tavily ${res.status}`);
+        if (res.status >= 500 || res.status === 429) {
+          if (res.status === 429) await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+          throw new Error(`Tavily ${res.status}`);
+        }
+        if ((res.status === 400 || res.status === 422) && body !== JSON.stringify(minimal)) {
+          body = JSON.stringify(minimal);
+          throw new Error(`Tavily ${res.status}, retrying with minimal parameters`);
+        }
         if (!res.ok) throw new NonRetryable(`Tavily ${res.status}: ${(await res.text()).slice(0, 200)}`);
         const json = (await res.json()) as {
           results?: { title?: string; url: string; content?: string; published_date?: string }[];
@@ -147,6 +157,9 @@ const trim = (s: string, max: number) => {
   return cut.slice(0, Math.max(cut.lastIndexOf(" "), max - 40)) + "…";
 };
 
+/** Web text must not be able to close or forge our fence, whatever the casing or spacing. */
+const defence = (s: string) => s.replace(/<\/?\s*search_results[^>]*>/gi, "");
+
 /** Compact plain text beats JSON for token count, and fencing marks the content as untrusted data. */
 export function formatHits(query: string, since: string | undefined, hits: Hit[], ids: number[]): string {
   const header = since
@@ -157,8 +170,8 @@ export function formatHits(query: string, since: string | undefined, hits: Hit[]
       const when = h.publishedDate
         ? `published ${h.publishedDate}${h.inWindow ? ", inside date filter" : ""}`
         : h.inWindow ? "matched date filter, no publish date" : since ? "current page, undated" : "undated";
-      const snippet = trim(h.content, SNIPPET_CHARS).replaceAll("</search_results>", "");
-      return `[${ids[i]}] ${h.title} | ${h.url} | ${when}\n${snippet}`;
+      const snippet = defence(trim(h.content, SNIPPET_CHARS));
+      return `[${ids[i]}] ${defence(h.title)} | ${defence(h.url)} | ${when}\n${snippet}`;
     })
     .join("\n\n");
   return `<search_results untrusted="true">\n${header}\n\n${body}\n</search_results>`;

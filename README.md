@@ -15,19 +15,19 @@ Keys: [Anthropic console](https://console.anthropic.com) and [Tavily](https://ap
 | Command | What it does |
 |---|---|
 | `npm run dev` | server with reload |
-| `npm test` | 50+ unit and integration tests, no keys or network needed |
+| `npm test` | 67 unit and integration tests, no keys or network needed |
 | `npm run typecheck` | strict TypeScript |
-| `npm run eval` | 17 end-to-end cases against the real model and search, writes `evals/results.md` (needs keys) |
+| `npm run eval` | 16 end-to-end cases against the real model and search, writes `evals/results.md` (needs keys) |
 
 Design, trade-offs and what's next: [DESIGN.md](DESIGN.md).
 
 ## API
 
 `POST /api/chat` streams Server-Sent Events: `session`, `status`, `token`, `reset`, `sources`, `done`, `error`.
-Add `?stream=false` (or `Accept: application/json`) to get one JSON document instead.
+A plain POST returns one JSON document (`answer`, `sources`, `metrics`); send `Accept: text/event-stream` (or `?stream=true`) to stream. Errors return `502 {error}`.
 
 ```bash
-curl -s localhost:3000/api/chat -H 'content-type: application/json' -H 'accept: application/json' -d '{
+curl -s localhost:3000/api/chat -H 'content-type: application/json' -d '{
   "message": "Has any of them changed pricing since?",
   "tz": "Europe/London",
   "history": [
@@ -42,7 +42,7 @@ curl -s localhost:3000/api/chat -H 'content-type: application/json' -H 'accept: 
 | `message` | required, up to 4,000 chars |
 | `sessionId` | optional; omit to start a new chat. Memory is shared across all chats regardless |
 | `tz` | IANA zone; defaults to the session's last zone, then `DEFAULT_TZ`, then the server's |
-| `history` | optional prior turns with ISO timestamps; seeded idempotently into the session |
+| `history` | optional prior turns; `timestamp` may be ISO, date-only, unix ms or omitted; seeded idempotently |
 | `now` | optional ISO instant to pretend it is (replay "last Tuesday" scenarios deterministically) |
 
 `GET /api/history?sessionId=...` returns a chat's stored messages.
