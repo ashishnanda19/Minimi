@@ -1,28 +1,16 @@
 # Eval results
 
-**0/1 cases pass** · models `google:gemini-2.5-flash -> groq:openai/gpt-oss-120b -> openrouter:google/gemma-4-31b-it:free` · judge on · clock fixed at 2026-11-10T13:15:00Z
+**1/1 cases pass** · models `google:gemini-3.5-flash -> google:gemini-3.6-flash -> google:gemini-3.1-flash-lite -> google:gemini-2.5-flash-lite -> groq:openai/gpt-oss-120b -> groq:openai/gpt-oss-20b -> openrouter:google/gemma-4-31b-it:free -> openrouter:nvidia/nemotron-3-ultra-550b-a55b:free` · judge on · clock fixed at 2026-11-10T13:15:00Z
 
-First token: median 0.0s, total: median 0.0s, p-max 0.0s
+First token: median 7.6s, total: median 8.9s, p-max 8.9s
+
+Judge means (1-5): date 5.0, honesty 5.0, leads-with-answer 5.0, usefulness 5.0
 
 | case | result | searches | steps | first token | total | date | honesty | lead | useful |
 |---|---|---|---|---|---|---|---|---|---|
-| crm-changed-since-monday | FAIL | 0 | 0 | - | 0.0s | - | - | - | - |
+| crm-changed-since-monday | pass | 5 | 2 | 7.6s | 8.9s | 5 | 5 | 5 | 5 |
 
 ## Searches run
 
-- **crm-changed-since-monday** (n/a): no search
+- **crm-changed-since-monday** (google:gemini-3.5-flash): Zoho CRM pricing new features (since 2026-11-09) [1.8s] | HubSpot Sales Hub pricing new features (since 2026-11-09) [2.0s] | Salesforce Starter pricing new features (since 2026-11-09) [2.5s] | Pipedrive pricing new features (since 2026-11-09) [3.6s] | Freshsales pricing new features (since 2026-11-09) [3.6s]
 
-## Failures
-
-### crm-changed-since-monday
-- run failed: Something went wrong while generating the answer. Please retry.
-- expected a search, got none
-- expected >=5 searches, ran 0
-- no search used since=2026-11-09 (saw: none)
-- answer should match /hubspot/
-- answer should match /pipedrive/
-- answer should match /salesforce/
-- answer should match /zoho/
-- answer should match /freshsales/
-
-> 

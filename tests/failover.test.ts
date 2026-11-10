@@ -40,6 +40,17 @@ describe("ModelPool", () => {
     expect(pool.ordered()[0]!.name).toBe("a");
   });
 
+  it("honours a long reset hint (daily quota) but re-checks within the hour", () => {
+    let t = 0;
+    const mk = (n: string) => ({ name: n, model: scriptedModel([{ text: "x" }]), cacheable: false });
+    const pool = new ModelPool([mk("a"), mk("b")], () => t);
+    pool.markFailed("a", Object.assign(new Error("Please retry in 12h49m9s"), { statusCode: 429, responseHeaders: { "retry-after": "46149" } }));
+    t = 59 * 60_000;
+    expect(pool.ordered()[0]!.name).toBe("b");   // still benched
+    t = 61 * 60_000;
+    expect(pool.ordered()[0]!.name).toBe("a");   // capped at one hour, not 12
+  });
+
   it("reads the status through the SDK's RetryError wrapper", () => {
     let t = 0;
     const mk = (n: string) => ({ name: n, model: scriptedModel([{ text: "x" }]), cacheable: false });
@@ -134,10 +145,14 @@ describe("config", () => {
     const cfg = loadConfig({ ...base, OPENROUTER_API_KEY: "o", GROQ_API_KEY: "g", GOOGLE_GENERATIVE_AI_API_KEY: "k" });
     expect(cfg.order).toEqual(["google", "groq", "openrouter"]);
   });
-  it("lets LLM_ORDER and *_MODEL override", () => {
-    const cfg = loadConfig({ ...base, GROQ_API_KEY: "g", GOOGLE_GENERATIVE_AI_API_KEY: "k", LLM_ORDER: "groq,google", GROQ_MODEL: "llama-x" });
+  it("lets LLM_ORDER and *_MODEL (comma lists) override", () => {
+    const cfg = loadConfig({ ...base, GROQ_API_KEY: "g", GOOGLE_GENERATIVE_AI_API_KEY: "k", LLM_ORDER: "groq,google", GROQ_MODEL: "llama-x, llama-y" });
     expect(cfg.order).toEqual(["groq", "google"]);
-    expect(cfg.models.groq).toBe("llama-x");
+    expect(cfg.models.groq).toEqual(["llama-x", "llama-y"]);
+  });
+  it("chains several models per provider by default, because free quotas are per model", () => {
+    const cfg = loadConfig({ ...base, GOOGLE_GENERATIVE_AI_API_KEY: "k" });
+    expect(cfg.models.google.length).toBeGreaterThan(1);
   });
 });
 

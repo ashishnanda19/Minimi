@@ -4,7 +4,8 @@ export type ProviderName = "anthropic" | "google" | "groq" | "openrouter";
 
 export interface Config {
   keys: Partial<Record<ProviderName, string>>;
-  models: Record<ProviderName, string>;
+  /** Models per provider, tried in order. Quotas are per model, so a list multiplies free capacity. */
+  models: Record<ProviderName, string[]>;
   /** Providers that have a key, in the order they are tried. */
   order: ProviderName[];
   tavilyKey: string;
@@ -32,6 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     if (v) keys[name as ProviderName] = v;
   }
 
+  const list = (name: string, fallback: string) => (get(name) ?? fallback).split(",").map((m) => m.trim()).filter(Boolean);
   const wanted = (get("LLM_ORDER")?.split(",").map((s) => s.trim()) ?? DEFAULT_ORDER) as ProviderName[];
   const order = wanted.filter((p) => keys[p]);
 
@@ -46,11 +48,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     keys,
     order,
     models: {
-      anthropic: get("ANTHROPIC_MODEL") ?? "claude-sonnet-5-5",
-      google: get("GEMINI_MODEL") ?? "gemini-2.5-flash",
-      groq: get("GROQ_MODEL") ?? "openai/gpt-oss-120b",
+      anthropic: list("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
+      // Free-tier daily quotas are per model (gemini-2.5-flash is only 20/day), so chain several.
+      google: list("GEMINI_MODEL", "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite,gemini-2.5-flash-lite"),
+      // Per-model token-per-minute caps on the free tier, so two models double the headroom.
+      groq: list("GROQ_MODEL", "openai/gpt-oss-120b,openai/gpt-oss-20b"),
       // Pinned, not the "openrouter/free" router: a random pick once returned raw tool-call markup as the answer.
-      openrouter: get("OPENROUTER_MODEL") ?? "google/gemma-4-31b-it:free",
+      openrouter: list("OPENROUTER_MODEL", "google/gemma-4-31b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free"),
     },
     tavilyKey: get("TAVILY_API_KEY")!,
     port: Number(env.PORT) || 3000,

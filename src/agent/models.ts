@@ -29,7 +29,7 @@ export function retryAfterMs(err: unknown): number | undefined {
   return e?.lastError ? retryAfterMs(e.lastError) : e?.errors?.length ? retryAfterMs(e.errors.at(-1)) : undefined;
 }
 
-const COOLDOWN_MS = { rateLimited: 60_000, auth: 10 * 60_000, other: 30_000 };
+const COOLDOWN_MS = { rateLimited: 60_000, maxRateLimited: 60 * 60_000, auth: 10 * 60_000, other: 30_000 };
 
 export const statusOf = (err: unknown): number | undefined => {
   const e = err as { statusCode?: number; lastError?: { statusCode?: number } };
@@ -67,7 +67,10 @@ export class ModelPool {
 
   markFailed(name: string, err: unknown): void {
     const status = statusOf(err);
-    const ms = status === 429 ? COOLDOWN_MS.rateLimited
+    // Honour the provider's own reset hint ("retry in 12h" for a daily quota), bounded so a dead
+    // model is re-checked hourly rather than never.
+    const hint = retryAfterMs(err);
+    const ms = status === 429 ? Math.min(Math.max(hint ?? COOLDOWN_MS.rateLimited, 10_000), COOLDOWN_MS.maxRateLimited)
       : status === 401 || status === 403 || status === 404 ? COOLDOWN_MS.auth
       : COOLDOWN_MS.other;
     this.benchedUntil.set(name, this.clock() + ms);
@@ -99,11 +102,13 @@ export function buildPool(cfg: Config): ModelPool {
     openrouter: (key, id) => createOpenRouter({ apiKey: key }).chat(id),
   };
   return new ModelPool(
-    cfg.order.map((p) => ({
-      name: `${p}:${cfg.models[p]}`,
-      model: make[p](cfg.keys[p]!, cfg.models[p]),
-      cacheable: p === "anthropic",
-      providerOptions: TUNING[p],
-    })),
+    cfg.order.flatMap((p) =>
+      cfg.models[p].map((id) => ({
+        name: `${p}:${id}`,
+        model: make[p](cfg.keys[p]!, id),
+        cacheable: p === "anthropic",
+        providerOptions: TUNING[p],
+      })),
+    ),
   );
 }

@@ -84,7 +84,7 @@ async function runCase(c: Case): Promise<Row> {
   }
 
   store.close();
-  return { id: c.id, failures, searches: m.searches.length, steps: m.steps, ttftMs: m.ttftMs, totalMs: m.totalMs, verdict, answer, queries: m.searches.map((x) => `${x.query}${x.since ? ` (since ${x.since})` : ""}`), model: m.model };
+  return { id: c.id, failures, searches: m.searches.length, steps: m.steps, ttftMs: m.ttftMs, totalMs: m.totalMs, verdict, answer, queries: m.searches.map((x) => `${x.query}${x.since ? ` (since ${x.since})` : ""} [${(x.ms / 1000).toFixed(1)}s${x.cached ? ", cached" : ""}${x.error ? `, ERROR ${x.error.slice(0, 60)}` : ""}]`), model: m.model };
 }
 
 async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
