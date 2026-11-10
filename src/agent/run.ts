@@ -114,12 +114,13 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
     if (signal?.aborted) return;
     if (!answer.trim()) throw new Error("model returned an empty answer");
 
+    // floor, never round: the answer must not be stamped later than the instant the next queued turn can start.
     // Persist only a completed turn: a retry after a failure never duplicates the user's message.
     const sources = registry.cited(answer);
     const totalMs = performance.now() - started;
     store.addMessages(sessionId, [
       { role: "user", content: message, createdAt: now },
-      { role: "assistant", content: answer, sources, createdAt: new Date(now.getTime() + Math.round(totalMs)) },
+      { role: "assistant", content: answer, sources, createdAt: new Date(now.getTime() + Math.floor(totalMs)) },
     ]);
 
     if (sources.length) yield { type: "sources", items: sources };

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error plain JS module shared with the browser
 import { renderMarkdown } from "../public/markdown.js";
 
 const sources = [{ id: 1, title: "HubSpot Pricing", url: "https://www.hubspot.com/pricing" }];
