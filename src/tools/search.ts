@@ -206,7 +206,11 @@ const strictArgs = z.object({
   maxResults: z.number().int().min(1).max(8).default(5),
 });
 
+/** Hard ceiling on tool calls per turn. A 5-entity check needs 5; this stops a confused model burning credits. */
+export const MAX_SEARCHES_PER_TURN = 8;
+
 export function createSearchTool(deps: SearchToolDeps) {
+  let calls = 0;
   return tool({
     description: TOOL_DESCRIPTION,
     inputSchema: toolInput,
@@ -215,6 +219,9 @@ export function createSearchTool(deps: SearchToolDeps) {
       if (!parsed.success) {
         // Returned as a result (not thrown) so the model can correct the call and go again.
         return `INVALID_ARGUMENTS: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`;
+      }
+      if (++calls > MAX_SEARCHES_PER_TURN) {
+        return "SEARCH_LIMIT_REACHED: no more searches this turn. Answer now with what you have and say what you could not check.";
       }
       const args = parsed.data;
       const started = performance.now();

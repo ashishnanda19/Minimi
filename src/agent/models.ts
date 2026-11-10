@@ -16,6 +16,19 @@ export interface PoolEntry {
   providerOptions?: ProviderOptions;
 }
 
+/**
+ * How long the provider says to wait ("Please retry in 8.3s", "try again in 450ms", or a Retry-After header).
+ * undefined when it gave no hint.
+ */
+export function retryAfterMs(err: unknown): number | undefined {
+  const e = err as { message?: string; responseHeaders?: Record<string, string>; lastError?: unknown; errors?: unknown[] };
+  const header = Number(e?.responseHeaders?.["retry-after"]);
+  if (Number.isFinite(header) && header > 0) return header * 1000;
+  const m = /(?:retry|try again) in ([\d.]+)\s*(ms|s)\b/i.exec(e?.message ?? "");
+  if (m) return Number(m[1]) * (m[2]!.toLowerCase() === "ms" ? 1 : 1000);
+  return e?.lastError ? retryAfterMs(e.lastError) : e?.errors?.length ? retryAfterMs(e.errors.at(-1)) : undefined;
+}
+
 const COOLDOWN_MS = { rateLimited: 60_000, auth: 10 * 60_000, other: 30_000 };
 
 export const statusOf = (err: unknown): number | undefined => {

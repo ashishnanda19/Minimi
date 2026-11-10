@@ -1,4 +1,5 @@
-import { generateText, Output, type LanguageModel } from "ai";
+import { generateText, Output } from "ai";
+import type { ModelPool, PoolEntry } from "../src/agent/models.js";
 import { z } from "zod";
 
 export const verdictSchema = z.object({
@@ -11,11 +12,12 @@ export const verdictSchema = z.object({
 });
 export type Verdict = z.infer<typeof verdictSchema>;
 
-export async function judge(model: LanguageModel, ctx: {
+export async function judge(models: ModelPool, ctx: {
   calendar: string; memory: string; question: string; answer: string; queries: string[]; rubric: string; sources: string;
 }): Promise<Verdict> {
-  const { output } = await generateText({
+  const call = (model: PoolEntry["model"]) => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({ schema: verdictSchema }),
     system: "You are a strict evaluator of a web-search chat assistant. Judge ONLY the assistant's behaviour against the rubric, using the calendar as the ground truth for dates. You cannot verify live web facts, so do not penalise specific prices that are cited; do penalise claims with no citation, invented changes, wrong dates, and ignoring the rubric.",
     prompt: [
@@ -28,5 +30,18 @@ export async function judge(model: LanguageModel, ctx: {
       `RUBRIC: ${ctx.rubric}`,
     ].join("\n\n"),
   });
-  return output;
+
+  // Judge calls fail over exactly like chat turns: free-tier quotas are per minute and easy to hit.
+  let lastError: unknown;
+  for (const entry of models.ordered()) {
+    try {
+      const { output } = await call(entry.model);
+      models.markOk(entry.name);
+      return output;
+    } catch (err) {
+      models.markFailed(entry.name, err);
+      lastError = err;
+    }
+  }
+  throw lastError;
 }

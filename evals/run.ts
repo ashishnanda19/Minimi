@@ -18,7 +18,7 @@ import { judge, type Verdict } from "./judge.js";
 const args = process.argv.slice(2);
 const only = args.find((a) => a.startsWith("--only="))?.slice(7).split(",");
 const useJudge = !args.includes("--no-judge");
-const CONCURRENCY = 3;
+const CONCURRENCY = 2; // free tiers allow only a handful of requests per minute
 
 let cfg: ReturnType<typeof loadConfig>;
 try {
@@ -28,7 +28,6 @@ try {
   process.exit(1);
 }
 const models = buildPool(cfg);
-const judgeModel = models.ordered()[0]!.model; // judge with the best configured model
 const realProvider = new TavilyProvider(cfg.tavilyKey);
 const sharedCache = new TtlCache<Hit[]>(500, 30 * 60_000); // identical queries across cases cost one credit
 
@@ -41,6 +40,8 @@ interface Row {
   totalMs: number;
   verdict?: Verdict;
   answer: string;
+  queries: string[];
+  model: string;
 }
 
 async function runCase(c: Case): Promise<Row> {
@@ -69,7 +70,7 @@ async function runCase(c: Case): Promise<Row> {
   let verdict: Verdict | undefined;
   if (useJudge && answer) {
     try {
-      verdict = await judge(judgeModel, {
+      verdict = await judge(models, {
         calendar: buildCalendar(now, tz),
         memory: (c.seed ?? []).flatMap((s) => s.messages.map((x) => `[${x.at}] ${x.role}: ${x.content}`)).join("\n"),
         question: c.question, answer, rubric: c.rubric,
@@ -83,7 +84,7 @@ async function runCase(c: Case): Promise<Row> {
   }
 
   store.close();
-  return { id: c.id, failures, searches: m.searches.length, steps: m.steps, ttftMs: m.ttftMs, totalMs: m.totalMs, verdict, answer };
+  return { id: c.id, failures, searches: m.searches.length, steps: m.steps, ttftMs: m.ttftMs, totalMs: m.totalMs, verdict, answer, queries: m.searches.map((x) => `${x.query}${x.since ? ` (since ${x.since})` : ""}`), model: m.model };
 }
 
 async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
@@ -124,7 +125,8 @@ const summary = [
   scored.length ? `Judge means (1-5): date ${avg(dateScores).toFixed(1)}, honesty ${mean("honesty")}, leads-with-answer ${mean("leadsWithAnswer")}, usefulness ${mean("usefulness")}` : "",
 ].filter(Boolean).join("\n\n");
 
+const queryLog = rows.map((r) => `- **${r.id}** (${r.model || "n/a"}): ${r.queries.length ? r.queries.join(" | ") : "no search"}`).join("\n");
 const details = rows.filter((r) => r.failures.length).map((r) => `### ${r.id}\n${r.failures.map((f) => `- ${f}`).join("\n")}\n\n> ${r.answer.replace(/\n/g, "\n> ")}`).join("\n\n");
-writeFileSync(new URL("./results.md", import.meta.url), `# Eval results\n\n${summary}\n\n${table}\n\n${details ? `## Failures\n\n${details}\n` : ""}`);
+writeFileSync(new URL("./results.md", import.meta.url), `# Eval results\n\n${summary}\n\n${table}\n\n## Searches run\n\n${queryLog}\n\n${details ? `## Failures\n\n${details}\n` : ""}`);
 console.log(`\n${summary}\n\n${table}\n\nWrote evals/results.md`);
 process.exit(rows.some((r) => r.failures.length) ? 1 : 0);

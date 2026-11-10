@@ -168,3 +168,17 @@ describe("normalizeCitations", () => {
     expect(normalizeCitations("CEO【1†L1-L3】【2†source】 and [3].")).toBe("CEO[1][2] and [3].");
   });
 });
+
+describe("search budget", () => {
+  it("refuses calls beyond the per-turn cap so a confused model cannot burn credits", async () => {
+    const { MAX_SEARCHES_PER_TURN } = await import("../src/tools/search.js");
+    let hits = 0;
+    const provider = fakeProvider(async () => { hits++; return [r("https://a.com")]; });
+    const tool = createSearchTool({ provider, cache: new TtlCache<Hit[]>(100, 1000), registry: new SourceRegistry() });
+    const run = (q: string) => (tool.execute as any)({ query: q, topic: "general", maxResults: 3 }, { abortSignal: undefined, toolCallId: "t", messages: [] });
+    const outs: string[] = [];
+    for (let i = 0; i < MAX_SEARCHES_PER_TURN + 2; i++) outs.push(await run(`query number ${i}`));
+    expect(hits).toBe(MAX_SEARCHES_PER_TURN);
+    expect(outs.at(-1)).toMatch(/^SEARCH_LIMIT_REACHED/);
+  });
+});

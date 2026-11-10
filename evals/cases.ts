@@ -75,14 +75,14 @@ export const CASES: Case[] = [
     id: "recall-and-reverify",
     question: "What did I ask you on 3 November? Is your answer still correct today?",
     seed: [{ id: "tue3", messages: postgresChat }],
-    expect: { search: "yes", minSearches: 2, mustMatch: ["postgres", "3 nov"] },
+    expect: { search: "yes", minSearches: 2, mustMatch: ["postgres", "3 nov|nov(ember)? 3\\b"] },
     rubric: "Correctly recalls the Postgres hosting question from Tue 3 Nov (in a different chat), restates the earlier claims (Neon, Supabase, Render prices), re-checks each against current sources, and reports per claim unchanged/changed/unverified with dates and citations.",
   },
   {
     id: "postgres-last-tuesday",
     question: "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?",
     seed: [{ id: "tue3", messages: postgresChat }],
-    expect: { search: "yes", minSearches: 2, sinceUsed: "2026-11-03", mustMatch: ["3 nov"], mustNotMatch: ["10 nov.{0,40}you asked"] },
+    expect: { search: "yes", minSearches: 2, sinceUsed: "2026-11-03", mustMatch: ["3 nov|nov(ember)? 3\\b"], mustNotMatch: ["(10 nov|nov(ember)? 10).{0,40}you asked"] },
     rubric: "Resolves 'last Tuesday' to Tue 3 Nov (NOT today, Tue 10 Nov) because today is a Tuesday. Re-checks Neon, Supabase and Render pricing since that date and reports honestly per provider.",
   },
   {
@@ -104,7 +104,7 @@ export const CASES: Case[] = [
     now: "2026-11-09T09:00:00Z", // a Monday
     question: "Last Monday I asked about Postgres hosting, remind me what you said?",
     seed: [{ id: "mon2", messages: postgresChat.map((m) => ({ ...m, at: m.at.replace("2026-11-03", "2026-11-02") })) }],
-    expect: { search: "no", mustMatch: ["2 nov", "neon"] },
+    expect: { search: "no", mustMatch: ["2 nov|nov(ember)? 2\\b", "neon"] },
     rubric: "Today is Mon 9 Nov, so 'last Monday' is Mon 2 Nov (7 days ago), not today. Recalls the earlier answer from memory without searching.",
   },
   {

@@ -3,7 +3,7 @@ import { TtlCache } from "../lib/cache.js";
 import { createSearchTool, type Hit, type SearchProvider } from "../tools/search.js";
 import type { SourceRef, Store } from "../store/db.js";
 import { buildLedger, splitMemory, toModelMessages } from "./memory.js";
-import type { ModelPool, PoolEntry } from "./models.js";
+import { retryAfterMs, statusOf, type ModelPool, type PoolEntry } from "./models.js";
 import { buildSystem } from "./prompt.js";
 import { normalizeCitations, SourceRegistry, type SearchLogEntry } from "./sources.js";
 
@@ -18,6 +18,8 @@ export interface AgentDeps {
   provider: SearchProvider;
   store: Store;
   cache?: TtlCache<Hit[]>;
+  /** Injectable so tests don't actually wait. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
 export interface SeedMessage {
@@ -61,6 +63,16 @@ export function friendlyError(err: unknown): string {
   if (status === 529 || (status !== undefined && status >= 500)) return "The model provider is overloaded. Please retry.";
   return "Something went wrong while generating the answer. Please retry.";
 }
+
+/** If every provider is rate-limited, wait for the shortest hinted reset (capped) and go round once more. */
+const MAX_RATE_LIMIT_WAIT_MS = 20_000;
+const DEFAULT_RATE_LIMIT_WAIT_MS = 10_000;
+
+const defaultSleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+  });
 
 const defaultCache = new TtlCache<Hit[]>(200, 10 * 60_000);
 
@@ -140,7 +152,7 @@ async function* attempt(
 
 export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerator<AgentEvent> {
   const started = performance.now();
-  const { store, models, provider, cache = defaultCache } = deps;
+  const { store, models, provider, cache = defaultCache, sleep = defaultSleep } = deps;
   const { sessionId, message, tz, now, signal } = input;
 
   try {
@@ -152,29 +164,52 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
     const ledger = buildLedger(earlier, now, tz);
     const messages = toModelMessages(live, message, now, tz);
 
-    const candidates = models.ordered();
     const fallbacks: Metrics["fallbacks"] = [];
     let outcome: Attempt | undefined;
     let used = "";
 
-    for (const [i, entry] of candidates.entries()) {
-      const isLast = i === candidates.length - 1;
-      try {
-        const run = yield* attempt(entry, isLast, { provider, cache, started }, { system: buildSystem(now, tz, ledger, entry.cacheable), messages }, signal);
-        if (!run) return; // client aborted
-        models.markOk(entry.name);
-        outcome = run;
-        used = entry.name;
-        break;
-      } catch (err) {
-        if (signal?.aborted) return;
-        console.error(`[agent] ${entry.name} failed:`, errorText(err));
-        models.markFailed(entry.name, err);
-        fallbacks.push({ model: entry.name, error: errorText(err) });
-        if (isLast) throw err;
-        yield { type: "reset" }; // discard whatever the failed model had streamed
-        yield { type: "status", text: `${entry.name.split(":")[0]} unavailable, switching model` };
+    for (let round = 0; round < 2 && !outcome; round++) {
+      const candidates = models.ordered();
+      const waits: number[] = [];
+      let allRateLimited = true;
+      let lastErr: unknown;
+
+      for (const [i, entry] of candidates.entries()) {
+        const isLast = i === candidates.length - 1;
+        try {
+          const run = yield* attempt(entry, isLast, { provider, cache, started }, { system: buildSystem(now, tz, ledger, entry.cacheable), messages }, signal);
+          if (!run) return; // client aborted
+          models.markOk(entry.name);
+          outcome = run;
+          used = entry.name;
+          break;
+        } catch (err) {
+          if (signal?.aborted) return;
+          console.error(`[agent] ${entry.name} failed:`, errorText(err));
+          models.markFailed(entry.name, err);
+          fallbacks.push({ model: entry.name, error: errorText(err) });
+          lastErr = err;
+          if (statusOf(err) === 429) waits.push(retryAfterMs(err) ?? DEFAULT_RATE_LIMIT_WAIT_MS);
+          else allRateLimited = false;
+          if (!isLast) {
+            yield { type: "reset" }; // discard whatever the failed model had streamed
+            yield { type: "status", text: `${entry.name.split(":")[0]} unavailable, switching model` };
+          }
+        }
       }
+      if (outcome) break;
+
+      // Everyone is throttled: waiting a few seconds beats showing an error.
+      const wait = Math.min(...waits);
+      if (round === 0 && allRateLimited && wait <= MAX_RATE_LIMIT_WAIT_MS) {
+        const ms = Math.ceil(wait + 500);
+        yield { type: "reset" };
+        yield { type: "status", text: `All models are rate-limited. Retrying in ${Math.ceil(ms / 1000)}s` };
+        await sleep(ms, signal);
+        if (signal?.aborted) return;
+        continue;
+      }
+      throw lastErr;
     }
     if (!outcome) return;
 

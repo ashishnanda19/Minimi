@@ -155,3 +155,62 @@ describe("broken tool-call markup", () => {
     expect(events.at(-1)).toMatchObject({ type: "done", metrics: { model: "good" } });
   });
 });
+
+describe("everyone rate-limited", () => {
+  const limited = (msg: string) => Object.assign(new Error(msg), { statusCode: 429 });
+  const pool2 = (a: ReturnType<typeof scriptedModel>, b: ReturnType<typeof scriptedModel>) => new ModelPool([
+    { name: "a", model: a, cacheable: false }, { name: "b", model: b, cacheable: false },
+  ]);
+  const runWith = (pool: ModelPool, slept: number[]) =>
+    collect(runAgent(
+      { models: pool, provider: fakeProvider(), store, cache: new TtlCache<any>(10, 1000), sleep: async (ms) => { slept.push(ms); } },
+      { sessionId: "s", message: "q", tz: "UTC", now: NOW },
+    ));
+
+  it("waits for the SHORTEST hinted reset, tells the user, then succeeds instead of erroring", async () => {
+    const slept: number[] = [];
+    const events = await runWith(pool2(
+      scriptedModel([{ error: limited("Please retry in 2.4s") }, { text: "Back and fine." }]),
+      scriptedModel([{ error: limited("Rate limit reached. Please try again in 450ms.") }, { text: "Back and fine." }]),
+    ), slept);
+    expect(slept).toEqual([950]); // 450ms hint + 500ms buffer
+    expect(events.some((e) => e.type === "status" && /Retrying in 1s/.test(e.text))).toBe(true);
+    expect(events.at(-1)).toMatchObject({ type: "done" });
+  });
+
+  it("uses a default wait when providers give no hint", async () => {
+    const slept: number[] = [];
+    await runWith(pool2(
+      scriptedModel([{ error: limited("quota exceeded") }, { text: "ok" }]),
+      scriptedModel([{ error: limited("too many requests") }, { text: "ok" }]),
+    ), slept);
+    expect(slept).toEqual([10_500]);
+  });
+
+  it("does not wait when the hinted reset is too long: fails fast with a friendly error", async () => {
+    const slept: number[] = [];
+    const events = await runWith(pool2(
+      scriptedModel([{ error: limited("Please retry in 120s") }]),
+      scriptedModel([{ error: limited("Please retry in 90s") }]),
+    ), slept);
+    expect(slept).toEqual([]);
+    expect(events.at(-1)).toMatchObject({ type: "error" });
+  });
+
+  it("never waits when any failure is something other than a rate limit", async () => {
+    const slept: number[] = [];
+    const events = await runWith(pool2(
+      scriptedModel([{ error: limited("Please retry in 1s") }]),
+      scriptedModel([{ error: Object.assign(new Error("bad key"), { statusCode: 401 }) }]),
+    ), slept);
+    expect(slept).toEqual([]);
+    expect(events.at(-1)).toMatchObject({ type: "error" });
+  });
+
+  it("gives up after one waiting round (no infinite loop)", async () => {
+    const slept: number[] = [];
+    const events = await runWith(new ModelPool([{ name: "a", model: scriptedModel([{ error: limited("Please retry in 1s") }]), cacheable: false }]), slept);
+    expect(slept).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ type: "error" });
+  });
+});
