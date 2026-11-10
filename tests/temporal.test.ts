@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildCalendar, civilOf, daysAgo, formatStamp, isValidTimezone, isoDate, nowContext, relativeLabel,
+} from "../src/agent/temporal.js";
+
+// Tue 10 Nov 2026, 13:15 UTC = 18:45 IST
+const NOW = new Date("2026-11-10T13:15:00Z");
+
+describe("calendar", () => {
+  it("labels today, yesterday and 'last <weekday>' (Tuesday -> 7 days ago)", () => {
+    const cal = buildCalendar(NOW, "Asia/Kolkata");
+    expect(cal).toContain("Tue 10 Nov 2026 (2026-11-10): today");
+    expect(cal).toContain("Mon 9 Nov 2026 (2026-11-09): yesterday, last Monday");
+    expect(cal).toContain("Tue 3 Nov 2026 (2026-11-03): 7 days ago, last Tuesday");
+    expect(cal).toContain("Fri 6 Nov 2026 (2026-11-06): 4 days ago, last Friday");
+  });
+
+  it("on a Monday, 'last Monday' is 7 days ago, not today", () => {
+    const monday = new Date("2026-11-09T09:00:00Z");
+    const cal = buildCalendar(monday, "UTC");
+    expect(cal).toContain("Mon 9 Nov 2026 (2026-11-09): today");
+    expect(cal).toContain("Mon 2 Nov 2026 (2026-11-02): 7 days ago, last Monday");
+  });
+
+  it("crosses month and year boundaries", () => {
+    const cal = buildCalendar(new Date("2027-01-02T12:00:00Z"), "UTC");
+    expect(cal).toContain("Thu 31 Dec 2026 (2026-12-31): 2 days ago, last Thursday");
+    expect(cal).toContain("Mon 4 Jan 2027 (2027-01-04): in 2 days, next Monday");
+  });
+
+  it("handles leap day", () => {
+    const cal = buildCalendar(new Date("2028-03-01T12:00:00Z"), "UTC");
+    expect(cal).toContain("Tue 29 Feb 2028 (2028-02-29): yesterday, last Tuesday");
+  });
+
+  it("is chronological, oldest first, and includes upcoming days", () => {
+    const lines = buildCalendar(NOW, "UTC").split("\n");
+    expect(lines[0]).toContain("2026-10-13");
+    expect(lines.at(-1)).toContain("2026-11-17");
+    expect(lines.at(-1)).toContain("next Tuesday");
+  });
+});
+
+describe("timezones", () => {
+  it("00:30 IST on the 10th is still the 9th in UTC", () => {
+    const t = new Date("2026-11-09T19:00:00Z");
+    expect(isoDate(civilOf(t, "Asia/Kolkata"))).toBe("2026-11-10");
+    expect(isoDate(civilOf(t, "UTC"))).toBe("2026-11-09");
+    expect(formatStamp(t, "Asia/Kolkata")).toBe("Tue 10 Nov 2026, 00:30");
+  });
+
+  it("daysAgo counts calendar days in the user's zone, not 24h blocks", () => {
+    const sentLate = new Date("2026-11-09T18:40:00Z"); // 00:10 IST on the 10th
+    expect(daysAgo(sentLate, NOW, "Asia/Kolkata")).toBe(0);
+    expect(daysAgo(sentLate, NOW, "UTC")).toBe(1);
+  });
+
+  it("is DST-safe across a clock change", () => {
+    // US clocks go back on 1 Nov 2026
+    const before = new Date("2026-10-31T20:00:00Z");
+    const now = new Date("2026-11-03T20:00:00Z");
+    expect(daysAgo(before, now, "America/New_York")).toBe(3);
+  });
+
+  it("validates timezone names", () => {
+    expect(isValidTimezone("Europe/London")).toBe(true);
+    expect(isValidTimezone("Not/AZone")).toBe(false);
+  });
+});
+
+describe("labels", () => {
+  it("formats relative days", () => {
+    expect(relativeLabel(0)).toBe("today");
+    expect(relativeLabel(1)).toBe("yesterday");
+    expect(relativeLabel(9)).toBe("9 days ago");
+    expect(relativeLabel(-1)).toBe("tomorrow");
+    expect(relativeLabel(-3)).toBe("in 3 days");
+  });
+
+  it("nowContext states zone and ISO date", () => {
+    expect(nowContext(NOW, "Asia/Kolkata")).toBe(
+      "Now: Tue 10 Nov 2026, 18:45 (Asia/Kolkata, GMT+5:30). ISO date today: 2026-11-10.",
+    );
+  });
+});
