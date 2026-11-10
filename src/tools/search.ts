@@ -41,7 +41,9 @@ export class TavilyProvider implements SearchProvider {
       search_depth: "basic", // "advanced" doubles latency for a marginal gain on pricing/news lookups
       max_results: req.maxResults,
       include_answer: false,
-      ...(req.since ? { start_date: req.since } : {}),
+      include_published_date: true, // off by default for topic "general"; "confirmed change" needs a dated source
+      // filter_by_published_date makes start_date a hard filter instead of a ranking hint
+      ...(req.since ? { start_date: req.since, filter_by_published_date: true } : {}),
     });
 
     let lastError: unknown;

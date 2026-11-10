@@ -16,7 +16,7 @@ describe("TavilyProvider", () => {
     );
     const out = await new TavilyProvider("k", f).search({ query: "q", since: "2026-11-02", topic: "general", maxResults: 3 });
     const sent = JSON.parse(f.mock.calls[0]![1].body);
-    expect(sent).toMatchObject({ query: "q", start_date: "2026-11-02", max_results: 3, search_depth: "basic" });
+    expect(sent).toMatchObject({ query: "q", start_date: "2026-11-02", filter_by_published_date: true, include_published_date: true, max_results: 3, search_depth: "basic" });
     expect(f.mock.calls[0]![1].headers.authorization).toBe("Bearer k");
     expect(out[0]).toMatchObject({ title: "Pricing", publishedDate: "2026-11-03" });
   });
