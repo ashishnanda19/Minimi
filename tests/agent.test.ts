@@ -96,7 +96,7 @@ describe("agent loop", () => {
 
   it("survives a search outage: the model sees SEARCH_FAILED and still answers", async () => {
     const failing = { search: async () => { throw new Error("tavily down"); } };
-    const model = scriptedModel([{ tools: [{ input: { query: "x" } }] }, { text: "I couldn't verify that right now." }]);
+    const model = scriptedModel([{ tools: [{ input: { query: "x corp pricing" } }] }, { text: "I couldn't verify that right now." }]);
     const events = await collect(runAgent({ ...deps(model), provider: failing }, { ...base, message: "price of x?" }));
     expect(events.at(-1)?.type).toBe("done");
     expect(JSON.stringify(model.doStreamCalls[1]!.prompt)).toContain("SEARCH_FAILED");

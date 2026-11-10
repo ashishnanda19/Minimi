@@ -83,6 +83,10 @@ export class Store {
     return { id, tz };
   }
 
+  sessionTz(id: string): string | undefined {
+    return (this.db.prepare(`SELECT tz FROM sessions WHERE id = ?`).get(id) as { tz: string } | undefined)?.tz;
+  }
+
   /** Atomic multi-message insert. Duplicates (same session, role, time, text) are ignored, which makes seeding idempotent. */
   addMessages(sessionId: string, messages: NewMessage[]): void {
     const insert = this.db.prepare(
