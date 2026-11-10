@@ -3,6 +3,8 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createGroq } from "@ai-sdk/groq";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
+
+type ProviderOptions = Record<string, Record<string, unknown>>;
 import type { Config, ProviderName } from "../config.js";
 
 export interface PoolEntry {
@@ -10,6 +12,8 @@ export interface PoolEntry {
   model: LanguageModel;
   /** Only Anthropic understands cache_control; other providers get one plain system string. */
   cacheable: boolean;
+  /** Per-provider latency tuning, e.g. switching off hidden reasoning. */
+  providerOptions?: ProviderOptions;
 }
 
 const COOLDOWN_MS = { rateLimited: 60_000, auth: 10 * 60_000, other: 30_000 };
@@ -65,6 +69,15 @@ export class ModelPool {
   }
 }
 
+/**
+ * Search-and-summarise needs no deep reasoning, and hidden "thinking" is pure first-token latency.
+ * Gemini 2.5 Flash thinks by default; gpt-oss defaults to medium reasoning effort.
+ */
+const TUNING: Partial<Record<ProviderName, ProviderOptions>> = {
+  google: { google: { thinkingConfig: { thinkingBudget: 0 } } },
+  groq: { groq: { reasoningEffort: "low" } },
+};
+
 export function buildPool(cfg: Config): ModelPool {
   const make: Record<ProviderName, (key: string, id: string) => LanguageModel> = {
     anthropic: (key, id) => createAnthropic({ apiKey: key })(id),
@@ -77,6 +90,7 @@ export function buildPool(cfg: Config): ModelPool {
       name: `${p}:${cfg.models[p]}`,
       model: make[p](cfg.keys[p]!, cfg.models[p]),
       cacheable: p === "anthropic",
+      providerOptions: TUNING[p],
     })),
   );
 }

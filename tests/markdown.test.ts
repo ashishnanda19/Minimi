@@ -49,3 +49,11 @@ describe("renderMarkdown", () => {
     expect(renderMarkdown("```\nstill typing")).toBe("<pre><code>still typing</code></pre>");
   });
 });
+
+describe("foreign citation styles", () => {
+  it("renders gpt-oss style 【1†L1-L3】 as a normal chip", () => {
+    const html = renderMarkdown("Nadella is CEO【1†L1-L3】.", sources);
+    expect(html).toContain('class="cite"');
+    expect(html).not.toContain("【");
+  });
+});

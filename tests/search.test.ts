@@ -161,3 +161,10 @@ describe("TtlCache", () => {
     expect(c.get("a")).toBeUndefined();
   });
 });
+
+describe("normalizeCitations", () => {
+  it("folds model-specific citation styles into [n]", async () => {
+    const { normalizeCitations } = await import("../src/agent/sources.js");
+    expect(normalizeCitations("CEO【1†L1-L3】【2†source】 and [3].")).toBe("CEO[1][2] and [3].");
+  });
+});

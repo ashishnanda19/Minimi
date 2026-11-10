@@ -5,7 +5,7 @@ import type { SourceRef, Store } from "../store/db.js";
 import { buildLedger, splitMemory, toModelMessages } from "./memory.js";
 import type { ModelPool, PoolEntry } from "./models.js";
 import { buildSystem } from "./prompt.js";
-import { SourceRegistry, type SearchLogEntry } from "./sources.js";
+import { normalizeCitations, SourceRegistry, type SearchLogEntry } from "./sources.js";
 
 /** Round 1 searches, round 2 only if something unexpected turned up, last round must be the answer. */
 export const MAX_STEPS = 3;
@@ -64,6 +64,9 @@ export function friendlyError(err: unknown): string {
 
 const defaultCache = new TtlCache<Hit[]>(200, 10 * 60_000);
 
+/** Some weaker models emit their tool call as plain text. Never show that to a user; fail over instead. */
+export const BROKEN_TOOL_MARKUP = /<\/?tool_call>|<arg_key>|<function=|<\|tool_call|\{"name":\s*"web_search"/i;
+
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err)).slice(0, 200);
 
 interface Attempt {
@@ -91,6 +94,7 @@ async function* attempt(
     prepareStep: ({ stepNumber }) => (stepNumber >= MAX_STEPS - 1 ? { toolChoice: "none" as const } : undefined),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     maxRetries: isLast ? LAST_RESORT_RETRIES : 0,
+    providerOptions: entry.providerOptions as never,
     abortSignal: signal,
     onError: () => {}, // surfaced below via the stream's error part
   });
@@ -129,6 +133,8 @@ async function* attempt(
   if (signal?.aborted) return undefined;
   // A weak model that returns nothing is a provider failure like any other: try the next one.
   if (!answer.trim()) throw new Error("model returned an empty answer");
+  if (BROKEN_TOOL_MARKUP.test(answer)) throw new Error("model printed tool-call markup instead of calling the tool");
+  answer = normalizeCitations(answer);
   return { answer, sources: registry.cited(answer), steps, ttftMs, searches: registry.log };
 }
 
@@ -187,7 +193,7 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
     };
   } catch (err) {
     if (signal?.aborted) return;
-    console.error("[agent]", err);
+    console.error("[agent] all providers failed:", errorText(err));
     yield { type: "error", message: friendlyError(err) };
   }
 }

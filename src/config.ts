@@ -48,9 +48,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     models: {
       anthropic: get("ANTHROPIC_MODEL") ?? "claude-sonnet-5-5",
       google: get("GEMINI_MODEL") ?? "gemini-2.5-flash",
-      groq: get("GROQ_MODEL") ?? "llama-3.3-70b-versatile",
-      // The router picks a currently-free model that supports tool calling; a fixed ":free" id can vanish.
-      openrouter: get("OPENROUTER_MODEL") ?? "openrouter/free",
+      groq: get("GROQ_MODEL") ?? "openai/gpt-oss-120b",
+      // Pinned, not the "openrouter/free" router: a random pick once returned raw tool-call markup as the answer.
+      openrouter: get("OPENROUTER_MODEL") ?? "google/gemma-4-31b-it:free",
     },
     tavilyKey: get("TAVILY_API_KEY")!,
     port: Number(env.PORT) || 3000,

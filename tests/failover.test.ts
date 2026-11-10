@@ -140,3 +140,18 @@ describe("config", () => {
     expect(cfg.models.groq).toBe("llama-x");
   });
 });
+
+describe("broken tool-call markup", () => {
+  it("is treated as a provider failure, never shown to the user", async () => {
+    const broken = scriptedModel([{ text: '<tool_call>web_search<arg_key>query</arg_key><arg_value>x</arg_value></tool_call>' }]);
+    const good = scriptedModel([{ text: "Proper answer." }]);
+    const events = await run(new ModelPool([
+      { name: "weak", model: broken, cacheable: false },
+      { name: "good", model: good, cacheable: false },
+    ]));
+    let text = "";
+    for (const e of events) { if (e.type === "reset") text = ""; else if (e.type === "token") text += e.text; }
+    expect(text).toBe("Proper answer.");
+    expect(events.at(-1)).toMatchObject({ type: "done", metrics: { model: "good" } });
+  });
+});

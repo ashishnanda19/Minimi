@@ -9,6 +9,9 @@ export interface SearchLogEntry {
   error?: string;
 }
 
+/** Some models (gpt-oss) cite as 【1†L1-L3】 whatever the prompt says. Fold every such form into [1]. */
+export const normalizeCitations = (text: string): string => text.replace(/【\s*(\d+)[^】]*】/g, "[$1]");
+
 export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw);

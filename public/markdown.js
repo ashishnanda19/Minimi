@@ -45,7 +45,8 @@ const cells = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((c) =
 
 /** @param {string} src @param {{id:number,title:string,url:string}[]} [sources] */
 export function renderMarkdown(src, sources = []) {
-  const lines = src.replace(/\r\n/g, "\n").split("\n");
+  // Models like gpt-oss cite as 【1†L1-L3】 regardless of instructions; fold into [1].
+  const lines = src.replace(/\r\n/g, "\n").replace(/【\s*(\d+)[^】]*】/g, "[$1]").split("\n");
   const out = [];
   let i = 0;
   while (i < lines.length) {
