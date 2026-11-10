@@ -29,16 +29,21 @@ export interface Hit extends RawResult {
 }
 
 const TIMEOUT_MS = 8_000;
-const SNIPPET_CHARS = 600;
+export const SNIPPET_CHARS = 600;
+export type SearchDepth = "basic" | "fast" | "ultra-fast";
 
 export class TavilyProvider implements SearchProvider {
-  constructor(private readonly apiKey: string, private readonly fetchImpl: typeof fetch = fetch) {}
+  constructor(
+    private readonly apiKey: string,
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly depth: SearchDepth = "basic",
+  ) {}
 
   async search(req: SearchRequest): Promise<RawResult[]> {
     const full = {
       query: req.query,
       topic: req.topic,
-      search_depth: "basic", // "advanced" doubles latency for a marginal gain on pricing/news lookups
+      search_depth: this.depth, // "advanced" costs 2 credits; see evals/speed.md for basic vs fast vs ultra-fast
       max_results: req.maxResults,
       include_answer: false,
       include_published_date: true, // off by default for topic "general"; "confirmed change" needs a dated source
@@ -76,7 +81,7 @@ export class TavilyProvider implements SearchProvider {
           title: r.title?.trim() || hostOf(r.url),
           url: r.url,
           content: r.content ?? "",
-          publishedDate: r.published_date?.slice(0, 10),
+          publishedDate: toIsoDate(r.published_date),
         }));
       } catch (err) {
         if (err instanceof NonRetryable || req.signal?.aborted) throw err;
@@ -88,6 +93,13 @@ export class TavilyProvider implements SearchProvider {
 }
 
 class NonRetryable extends Error {}
+
+/** Tavily sends ISO dates for some sources and RFC 2822 ("Fri, 16 Oct 2026 08:00:00 GMT") for others. Always return YYYY-MM-DD. */
+export function toIsoDate(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? undefined : new Date(t).toISOString().slice(0, 10);
+}
 
 export interface SearchArgs {
   query: string;
@@ -161,7 +173,7 @@ const trim = (s: string, max: number) => {
 const defence = (s: string) => s.replace(/<\/?\s*search_results[^>]*>/gi, "");
 
 /** Compact plain text beats JSON for token count, and fencing marks the content as untrusted data. */
-export function formatHits(query: string, since: string | undefined, hits: Hit[], ids: number[]): string {
+export function formatHits(query: string, since: string | undefined, hits: Hit[], ids: number[], snippetChars = SNIPPET_CHARS): string {
   const header = since
     ? `Search "${query}" (date filter: published on/after ${since}; "current page" results are unfiltered and may be older)`
     : `Search "${query}"`;
@@ -170,7 +182,7 @@ export function formatHits(query: string, since: string | undefined, hits: Hit[]
       const when = h.publishedDate
         ? `published ${h.publishedDate}${h.inWindow ? ", inside date filter" : ""}`
         : h.inWindow ? "matched date filter, no publish date" : since ? "current page, undated" : "undated";
-      const snippet = defence(trim(h.content, SNIPPET_CHARS));
+      const snippet = defence(trim(h.content, snippetChars));
       return `[${ids[i]}] ${defence(h.title)} | ${defence(h.url)} | ${when}\n${snippet}`;
     })
     .join("\n\n");
@@ -186,6 +198,7 @@ export const TOOL_DESCRIPTION = `Search the web and return ranked snippets with 
 
 export interface SearchToolDeps extends WebSearchDeps {
   registry: SourceRegistry;
+  snippetChars?: number;
 }
 
 /**
@@ -209,13 +222,18 @@ const strictArgs = z.object({
 /** Hard ceiling on tool calls per turn. A 5-entity check needs 5; this stops a confused model burning credits. */
 export const MAX_SEARCHES_PER_TURN = 8;
 
+/** Weaker models write "since 2026-11-03" into the query text instead of using the `since` parameter. Recover it. */
+export function recoverSince(query: string): string | undefined {
+  return /\b(?:since|after|from)\s+(\d{4}-\d{2}-\d{2})\b/i.exec(query)?.[1];
+}
+
 export function createSearchTool(deps: SearchToolDeps) {
   let calls = 0;
   return tool({
     description: TOOL_DESCRIPTION,
     inputSchema: toolInput,
     execute: async (raw, { abortSignal }) => {
-      const parsed = strictArgs.safeParse({ ...raw, maxResults: raw.maxResults && Math.round(raw.maxResults) });
+      const parsed = strictArgs.safeParse({ ...raw, since: raw.since ?? recoverSince(raw.query), maxResults: raw.maxResults && Math.round(raw.maxResults) });
       if (!parsed.success) {
         // Returned as a result (not thrown) so the model can correct the call and go again.
         return `INVALID_ARGUMENTS: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`;
@@ -235,7 +253,7 @@ export function createSearchTool(deps: SearchToolDeps) {
         if (hits.length === 0) {
           return `NO_RESULTS for "${args.query}". Try different keywords, drop the date filter, or say plainly that nothing was found.`;
         }
-        const text = formatHits(args.query, args.since, hits, ids);
+        const text = formatHits(args.query, args.since, hits, ids, deps.snippetChars);
         return partialError ? `${text}\n(note: the secondary lookup failed: ${partialError}; coverage may be incomplete)` : text;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

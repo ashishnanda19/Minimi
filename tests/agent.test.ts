@@ -32,6 +32,9 @@ describe("agent loop", () => {
     const done = events.at(-1) as Extract<AgentEvent, { type: "done" }>;
     expect(done.metrics.searches).toHaveLength(2);
     expect(done.metrics.steps).toBe(2);
+    expect(done.metrics.firstStatusMs).not.toBeNull(); // the user saw "Searching: ..." before the answer
+    expect(done.metrics.usage.inputTokens).toBeGreaterThan(0);
+    expect(done.metrics.searchWallMs).toBeGreaterThanOrEqual(0);
 
     const saved = store.sessionMessages("s1");
     expect(saved.map((m) => m.role)).toEqual(["user", "assistant"]);
@@ -124,5 +127,15 @@ describe("date lookup reaches the model", () => {
     expect(system).toContain('"20 October" = Tue 20 Oct 2026');
     expect(system).toContain("NO stored messages on that day");
     expect(system).toContain("Nearest days with records: Tue 3 Nov 2026");
+  });
+});
+
+describe("since hint", () => {
+  it("tells the model which ISO date to pass as `since` for 'what changed since <date>' questions", async () => {
+    const model = scriptedModel([{ text: "ok" }]);
+    await collect(runAgent(deps(model), { ...base, message: "Last Tuesday I asked about Postgres hosting. Has pricing changed since?" }));
+    const system = model.doStreamCalls[0]!.prompt.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    expect(system).toContain('"Last Tuesday" = Tue 3 Nov 2026 (2026-11-03');
+    expect(system).toContain("pass that ISO date as `since`");
   });
 });

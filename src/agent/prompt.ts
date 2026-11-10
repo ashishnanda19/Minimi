@@ -43,7 +43,7 @@ export function buildSystem(now: Date, tz: string, ledger: string, cacheable: bo
     "",
     "# Record of earlier conversations (oldest first)",
     ledger || "(none: this is the user's first conversation)",
-    ...(lookup ? ["", "# Dates in the user's latest message (resolved by code from the stored record; treat as fact)", lookup] : []),
+    ...(lookup ? ["", "# Dates in the user's latest message (resolved by code from the stored record; treat as fact)", lookup, "When the user asks what changed, shipped or was announced after one of these dates, pass that ISO date as `since` to web_search."] : []),
   ].join("\n");
 
   // Anthropic: two blocks, the stable one marked cacheable. Everyone else: one plain string

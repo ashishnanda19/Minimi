@@ -44,9 +44,21 @@ export interface Metrics {
   model: string;
   fallbacks: { model: string; error: string }[];
   ttftMs: number | null;
+  /** Time until the user first sees "Searching: ..." */
+  firstStatusMs: number | null;
+  /** Wall-clock time spent waiting on searches. Compare with the sum of each search's ms to see the parallel speed-up. */
+  searchWallMs: number;
   totalMs: number;
   steps: number;
+  usage: Usage;
   searches: SearchLogEntry[];
+}
+
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  /** Tokens served from Anthropic's prompt cache (0 elsewhere). */
+  cacheReadTokens: number;
 }
 
 export type AgentEvent =
@@ -87,6 +99,9 @@ interface Attempt {
   sources: SourceRef[];
   steps: number;
   ttftMs: number | null;
+  firstStatusMs: number | null;
+  searchWallMs: number;
+  usage: Usage;
   searches: SearchLogEntry[];
 }
 
@@ -116,6 +131,11 @@ async function* attempt(
   let stepText = "";
   let steps = 0;
   let ttftMs: number | null = null;
+  let firstStatusMs: number | null = null;
+  let searchWallMs = 0;
+  let toolStart: number | null = null;
+  let lastToolDone = 0;
+  const usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
 
   for await (const part of result.fullStream) {
     if (part.type === "text-delta") {
@@ -123,9 +143,18 @@ async function* attempt(
       stepText += part.text;
       yield { type: "token", text: part.text };
     } else if (part.type === "tool-call") {
+      firstStatusMs ??= performance.now() - ctx.started;
+      toolStart ??= performance.now();
       yield { type: "status", text: `Searching: ${(part.input as { query?: string }).query ?? ""}` };
+    } else if (part.type === "tool-result" || part.type === "tool-error") {
+      lastToolDone = performance.now();
     } else if (part.type === "finish-step") {
       steps++;
+      usage.inputTokens += part.usage.inputTokens ?? 0;
+      usage.outputTokens += part.usage.outputTokens ?? 0;
+      usage.cacheReadTokens += part.usage.inputTokenDetails?.cacheReadTokens ?? 0;
+      if (toolStart !== null) searchWallMs += Math.max(0, lastToolDone - toolStart);
+      toolStart = null;
       if (part.finishReason === "tool-calls") {
         if (stepText) yield { type: "reset" };
       } else {
@@ -153,7 +182,7 @@ async function* attempt(
   if (!isLast && registry.log.some((l) => l.results > 0) && !/\[\d+/.test(answer) && /\d/.test(answer)) {
     throw new Error("model searched but cited no sources");
   }
-  return { answer, sources: registry.cited(answer), steps, ttftMs, searches: registry.log };
+  return { answer, sources: registry.cited(answer), steps, ttftMs, firstStatusMs, searchWallMs, usage, searches: registry.log };
 }
 
 export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerator<AgentEvent> {
@@ -233,7 +262,10 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
     if (outcome.sources.length) yield { type: "sources", items: outcome.sources };
     yield {
       type: "done",
-      metrics: { model: used, fallbacks, ttftMs: outcome.ttftMs, totalMs, steps: outcome.steps, searches: outcome.searches },
+      metrics: {
+        model: used, fallbacks, ttftMs: outcome.ttftMs, firstStatusMs: outcome.firstStatusMs, searchWallMs: outcome.searchWallMs,
+        totalMs, steps: outcome.steps, usage: outcome.usage, searches: outcome.searches,
+      },
     };
   } catch (err) {
     if (signal?.aborted) return;

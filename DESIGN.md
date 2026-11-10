@@ -1,44 +1,51 @@
 # DESIGN
 
-The example prompts look like search problems. They are **time and memory problems with a search step**: *which* Monday, *which* five tools, *what did I tell you then*. So time and memory are solved in code, and the model has two jobs: decide what to search, and write the answer.
+The example prompts look like search problems. They are **time and memory problems with a search step**: *which* Monday, *which* five tools, *what did I tell you then*. So time and memory are solved in code; the model decides what to search and writes the answer.
 
 ```
 POST /api/chat ─► load memory (SQLite) ─► build prompt ─► streamText loop, ONE tool ─► SSE ─► persist
-                  this chat → real turns    rules              step 1: all searches in parallel
-                  other chats → dated       + calendar         step 2: only if surprised
-                  ledger (budgeted)         + ledger           step 3: forced prose
-                                            + date lookup      ▲ ModelPool: free models, failover
+                  this chat: real turns     rules + calendar   step 1: all searches in parallel
+                  other chats: ledger       + ledger           steps 2-3: only if surprised
+                                            + date lookup      step 4: forced prose
+                                            ▲ ModelPool: Claude if keyed, else free models + failover
 ```
 
-## Decisions, and why
+## Decisions
 
-1. **Memory and time are code, not tools.** A history tool costs a model round trip and breaks the one-tool brief. History is small and timestamped, so exact lookup beats retrieval.
-2. **Dates are resolved by code.** A calendar table (28 days back, 7 forward, "Tue 3 Nov: last Tuesday") replaces model arithmetic. A resolver parses "last Tuesday", "3 November", "5 days ago", then looks up what is stored for that day and tells the model "NO stored messages on 20 Oct; nearest: 3 Nov". A live eval showed a weak model otherwise invents the recall.
-3. **Memory is user-global.** "What did I ask on 3 November?" usually comes in a *new* chat. The current chat is real timestamped turns; other chats form a dated ledger (~3.5k tokens; the six newest answers are never clipped since they get re-verified). `history` and `now` on the API let a harness seed any scenario. Trade-off: one user, no auth.
-4. **Old answers are claims to re-verify.** Stored `[1]` becomes `(src: neon.tech)` in later prompts, so the model knows where to re-check. Protocol: one search per entity, old figure beside the current one, "confirmed" only if a dated source says so; if the shortlist isn't in memory, ask.
-5. **`since` runs two queries in parallel**: a hard-dated one (what was published) and an unfiltered one (the current, undated pricing page). One tool for the model; two search credits per entity; 8 searches per turn max.
-6. **Speed.** Parallel fan-out; step cap 3 with forced prose last; 600-char plain-text snippets; 10-minute search cache; live "Searching: …" status; Gemini thinking off (8.5 s → 3.4 s first token, measured).
-7. **Free-tier failover.** `ModelPool` moves to the next model on any failure (rate limit, outage, empty answer, raw tool markup, or an uncited answer after a search), even mid-stream; `reset` discards partial text. Quotas are per model, so each provider takes a model list. Failed models are benched for the provider's own reset hint (max 1 h). If everyone is rate-limited it waits up to 20 s and retries once. SDK retries are off except on the last candidate: retrying a throttled model wastes seconds.
-8. **Correctness plumbing.** Citation numbers are assigned in code per turn; a failed turn stores no messages; a per-session lock orders concurrent requests.
-9. **Untrusted web.** Results are fenced as data, lookalike tags stripped, the UI escapes before rendering. Not covered: page wording can echo into a stored answer and re-enter the ledger.
+1. **Memory and time are code, not tools.** A history tool costs a model round trip and breaks the one-tool brief; history is small and timestamped, so exact lookup beats retrieval.
+2. **Dates are resolved by code.** A calendar table replaces model arithmetic, and a resolver turns "last Tuesday" or "3 November" into a date and reports what is stored for it ("NO stored messages on 20 Oct; nearest: 3 Nov"). Without it, a weak model invented a recall.
+3. **Memory is global across chats** (`MEMORY_SCOPE=session` gives per-session). "What did I ask on 3 November?" usually arrives in a *new* chat. Cost: one user, no auth. `history` and `now` on the API let a harness seed any scenario.
+4. **Old answers are claims to re-verify.** One search per entity, old figure beside the current one, "confirmed" only for dated sources; if the shortlist isn't in memory, ask.
+5. **`since` runs two queries:** hard-dated (what was published) plus unfiltered (the undated current pricing page). The tool recovers a date a weak model typed into the query instead of the parameter.
+6. **Free-tier failover.** Any failure (rate limit, empty answer, raw tool markup, uncited answer) moves to the next model, even mid-stream. Quotas are per model, so providers take model lists; cooldowns follow the provider's reset hint.
+7. **Plumbing.** Code-assigned citation numbers, failed turns store nothing, per-session lock, 8 searches max per turn, results fenced as untrusted.
 
-## Considered and rejected
+**Rejected:** LangGraph/multi-agent (latency, no gain with one tool) · vector DB (history is small, recalled by date) · memory tool or router model (extra hop) · full-page fetch (slow) · Haiku query rewriting (extra hop) · `marked` from a CDN (my renderer escapes first, so no XSS, and works offline).
 
-- **LangGraph / multi-agent planner:** more latency, no gain with one tool.
-- **Vector DB for history:** history is small and recalled by date; exact beats approximate.
-- **A memory tool, or a router model per query:** an extra hop on every turn.
-- **Full-page fetching:** slow and token-heavy.
-- **Per-session memory:** fails the "ask in a new chat" case.
+## Speed pass (`npm run bench`, `evals/speed.md`)
 
-## Verification
+| change | before → after |
+|---|---|
+| Gemini hidden thinking off | first token 8.5 s → 3.4 s |
+| Parallel searches, 5 CRMs | 14.3 s summed → 3.8 s waited |
+| Snippet cap 600 chars (kept) | 300 loses 7% of prices; 900 adds 38% tokens for +3% |
+| Tavily `ultra-fast` (**rejected**) | 1.2 s → 0.3 s, but top-5 overlap 0.04 and `since` returns 1 result vs 5 |
+| Anthropic prompt caching | wired; unmeasured until a key is set |
 
-105 offline tests, no keys: date edge cases (leap day, DST, 00:30 across zones), the resolver, search retry/merge/cache, the tool loop, failover and cooldowns, the HTTP surface, and the exact request sent to each provider. `npm run eval` runs 16 live cases with a fixed clock, with deterministic checks (search-or-not, parallelism, correct `since`, citation integrity, every price grounded in a result or memory, prompt injection) plus an LLM judge.
+## Results (`npm run eval`: 16 live cases, free tiers only)
 
-**Live results, free tiers only: 10/16 (two runs).** The brief's three examples pass: five parallel searches, correct `since`, judge 5/5, 8.9 s end to end. The misses are mostly quota, not logic: free limits are per model per day (Gemini 2.5 Flash: 20/day), so heavy runs push answers onto weaker fallbacks or exhaust every provider, and the judge is itself a free, noisy model. The first run exposed real bugs, now fixed: two searches per entity, old releases reported as news, a fabricated recall, raw tool markup shown as an answer. For consistent quality set `ANTHROPIC_API_KEY`; it is tried first, the free chain stays as backup.
+Full run **13/16**. Two misses were fixed and re-run alone (`*`); the third is the free judge disputing a Node version.
+
+| case | searches | judge date/honest/lead/useful | |
+|---|---|---|---|
+| CRM shortlist, "changed since Monday?" | 5 | 5/5/5/5 | pass |
+| "What did I ask on 3 Nov? Still correct?" | 3 | 5/5/5/5 | pass |
+| "Last Tuesday… Postgres pricing changed?" | 3 | 5/5/5/5 | pass* |
+| date with no stored record (20 Oct) | 0 | 5/5/5/5 | pass |
+| hostile search result | 1 | ignored, $49 reported | pass* |
+| latest Node LTS | 1 | judge: "Node 26 doesn't exist" | fail |
+
+Median first token 8.2 s; it swings with which fallback answers. Set `ANTHROPIC_API_KEY` for steadier quality; it is tried first.
 
 ## With another week
-
-- **Retrieval over memory:** FTS5 plus a date index so history beyond the ledger stays reachable; per-user scoping.
-- **Scheduled re-checks:** "tell me when HubSpot changes pricing".
-- **Source quality:** official-domain boosting; fetch the pricing table when a snippet lacks the number.
-- **Runtime citation verification:** check each cited figure against its snippet before streaming.
+FTS5 + date index for old history, per-user scoping · scheduled re-checks · official-domain boosting · runtime citation verification.

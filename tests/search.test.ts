@@ -58,6 +58,17 @@ function fakeProvider(fn: (r: SearchRequest) => Promise<{ title: string; url: st
 }
 const r = (url: string, publishedDate?: string) => ({ title: url, url, content: "snippet text", publishedDate });
 
+describe("published dates", () => {
+  it("normalises ISO and RFC 2822 dates to YYYY-MM-DD and drops junk", async () => {
+    const { toIsoDate } = await import("../src/tools/search.js");
+    expect(toIsoDate("2026-11-03T10:00:00Z")).toBe("2026-11-03");
+    expect(toIsoDate("Fri, 16 Oct 2026 08:00:00 GMT")).toBe("2026-10-16");
+    expect(toIsoDate("2026-10-01")).toBe("2026-10-01");
+    expect(toIsoDate("not a date")).toBeUndefined();
+    expect(toIsoDate(null)).toBeUndefined();
+  });
+});
+
 describe("webSearch", () => {
   it("with `since` runs a dated and an undated query in parallel and merges them", async () => {
     const calls: SearchRequest[] = [];
@@ -180,5 +191,23 @@ describe("search budget", () => {
     for (let i = 0; i < MAX_SEARCHES_PER_TURN + 2; i++) outs.push(await run(`query number ${i}`));
     expect(hits).toBe(MAX_SEARCHES_PER_TURN);
     expect(outs.at(-1)).toMatch(/^SEARCH_LIMIT_REACHED/);
+  });
+});
+
+describe("recoverSince", () => {
+  it("finds a date the model typed into the query instead of the parameter", async () => {
+    const { recoverSince } = await import("../src/tools/search.js");
+    expect(recoverSince("Neon pricing since 2026-11-03")).toBe("2026-11-03");
+    expect(recoverSince("HubSpot news after 2026-11-09 changelog")).toBe("2026-11-09");
+    expect(recoverSince("Neon pricing")).toBeUndefined();
+    expect(recoverSince("released 2026-11-03")).toBeUndefined(); // only explicit since/after/from
+  });
+
+  it("the tool applies it when `since` is omitted, so the dated query actually runs", async () => {
+    const seen: (string | undefined)[] = [];
+    const provider = fakeProvider(async (req) => { seen.push(req.since); return [r("https://a.com")]; });
+    const tool = createSearchTool({ provider, cache: new TtlCache<Hit[]>(10, 1000), registry: new SourceRegistry() });
+    await (tool.execute as any)({ query: "Neon pricing since 2026-11-03" }, { abortSignal: undefined, toolCallId: "t", messages: [] });
+    expect(seen).toContain("2026-11-03");
   });
 });

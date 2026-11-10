@@ -7,7 +7,8 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "eval": "tsx evals/run.ts"
+    "eval": "tsx evals/run.ts",
+    "bench": "tsx evals/bench.ts"
   },
   "description": "Time-aware web-search chat agent",
   "dependencies": {
