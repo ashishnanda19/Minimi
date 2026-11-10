@@ -4,7 +4,7 @@ import { civilOf, dayDistance, daysAgo, formatDay, formatStamp, isoDate, relativ
 import type { SourceRef, StoredMessage } from "../store/db.js";
 
 /** Last N messages of the current chat go in as real turns; anything older folds into the ledger. */
-export const MAX_LIVE_MESSAGES = 30;
+export const MAX_LIVE_MESSAGES = 20;
 export const LEDGER_BUDGET_CHARS = 14_000; // ~3.5k tokens
 const LEDGER_ANSWER_CHARS = 1_200; // older answers
 const RECENT_ANSWERS_KEPT_WHOLE = 6; // newest answers are the likeliest to be re-verified, so never clip them

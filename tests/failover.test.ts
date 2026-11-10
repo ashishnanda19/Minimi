@@ -245,3 +245,27 @@ describe("uncited answers after a search", () => {
     expect(alone.at(-1)?.type).toBe("done");
   });
 });
+
+describe("plan-compatible settings", () => {
+  it("accepts the plan's MODEL variable as the Anthropic model", () => {
+    const cfg = loadConfig({ TAVILY_API_KEY: "t", ANTHROPIC_API_KEY: "a", MODEL: "claude-haiku-5-5" });
+    expect(cfg.models.anthropic).toEqual(["claude-haiku-5-5"]);
+    expect(loadConfig({ TAVILY_API_KEY: "t", ANTHROPIC_API_KEY: "a", MODEL: "x", ANTHROPIC_MODEL: "y" }).models.anthropic).toEqual(["y"]);
+  });
+  it("defaults memory to global and supports the plan's per-session scope", () => {
+    expect(loadConfig({ TAVILY_API_KEY: "t", GROQ_API_KEY: "g" }).memoryScope).toBe("global");
+    expect(loadConfig({ TAVILY_API_KEY: "t", GROQ_API_KEY: "g", MEMORY_SCOPE: "session" }).memoryScope).toBe("session");
+  });
+  it("session scope keeps other chats out of the prompt", async () => {
+    store.ensureSession("old", "UTC", NOW);
+    store.addMessages("old", [{ role: "user", content: "SECRET-OLD-QUESTION", createdAt: new Date("2026-11-03T08:30:00Z") }]);
+    const ask = async (memoryScope: "global" | "session") => {
+      const m = scriptedModel([{ text: "ok" }]);
+      await collect(runAgent({ models: ModelPool.single(m), provider: fakeProvider(), store, memoryScope },
+        { sessionId: `new-${memoryScope}`, message: "what did I ask on 3 November?", tz: "UTC", now: NOW }));
+      return JSON.stringify(m.doStreamCalls[0]!.prompt);
+    };
+    expect(await ask("global")).toContain("SECRET-OLD-QUESTION");
+    expect(await ask("session")).not.toContain("SECRET-OLD-QUESTION");
+  });
+});

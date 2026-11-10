@@ -97,7 +97,7 @@ export function nowContext(now: Date, tz: string): string {
  * Any day 1-7 days back is the "last <weekday>" for its weekday: the most recent
  * such weekday strictly before today.
  */
-export function buildCalendar(now: Date, tz: string, back = 28, forward = 7): string {
+export function buildCalendar(now: Date, tz: string, back = 14, forward = 7): string {
   const today = civilOf(now, tz);
   const rows: string[] = [];
   for (let i = -forward; i <= back; i++) {

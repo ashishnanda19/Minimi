@@ -125,12 +125,13 @@ function main() {
   const models = buildPool(cfg);
   const app = createApp({
     models,
+    memoryScope: cfg.memoryScope,
     provider: new TavilyProvider(cfg.tavilyKey),
     store: new Store(cfg.dbPath),
     defaultTz: cfg.defaultTz,
   });
   serve({ fetch: app.fetch, port: cfg.port }, (info) =>
-    console.log(`Minimi is running at http://localhost:${info.port}\nModel order: ${models.names.join(" -> ")}`),
+    console.log(`Minimi is running at http://localhost:${info.port}\nModel order: ${models.names.join(" -> ")}\nMemory: ${cfg.memoryScope}`),
   );
 }
 

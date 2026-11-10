@@ -35,7 +35,7 @@ describe("calendar", () => {
 
   it("is chronological, oldest first, and includes upcoming days", () => {
     const lines = buildCalendar(NOW, "UTC").split("\n");
-    expect(lines[0]).toContain("2026-10-13");
+    expect(lines[0]).toContain("2026-10-27"); // 14 days back, per the plan
     expect(lines.at(-1)).toContain("2026-11-17");
     expect(lines.at(-1)).toContain("next Tuesday");
   });

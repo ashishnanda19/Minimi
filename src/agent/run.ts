@@ -7,8 +7,8 @@ import { retryAfterMs, statusOf, type ModelPool, type PoolEntry } from "./models
 import { buildSystem } from "./prompt.js";
 import { normalizeCitations, SourceRegistry, type SearchLogEntry } from "./sources.js";
 
-/** Round 1 searches, round 2 only if something unexpected turned up, last round must be the answer. */
-export const MAX_STEPS = 3;
+/** Round 1 searches, later rounds only if something unexpected turned up, the last round must be the answer. */
+export const MAX_STEPS = 4;
 const MAX_OUTPUT_TOKENS = 2_500;
 // Exhausted providers fail over immediately; only the last candidate is worth the SDK's own backoff-and-retry.
 const LAST_RESORT_RETRIES = 2;
@@ -18,6 +18,7 @@ export interface AgentDeps {
   provider: SearchProvider;
   store: Store;
   cache?: TtlCache<Hit[]>;
+  memoryScope?: "global" | "session";
   /** Injectable so tests don't actually wait. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
@@ -157,7 +158,7 @@ async function* attempt(
 
 export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerator<AgentEvent> {
   const started = performance.now();
-  const { store, models, provider, cache = defaultCache, sleep = defaultSleep } = deps;
+  const { store, models, provider, cache = defaultCache, sleep = defaultSleep, memoryScope = "global" } = deps;
   const { sessionId, message, tz, now, signal } = input;
 
   try {
@@ -166,7 +167,7 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
       store.addMessages(sessionId, input.history.map((h) => ({ role: h.role, content: h.content, createdAt: h.timestamp })));
     }
     const sessionMsgs = store.sessionMessages(sessionId);
-    const otherChats = store.earlierMessages(sessionId, 400);
+    const otherChats = memoryScope === "global" ? store.earlierMessages(sessionId, 400) : [];
     const { live, earlier } = splitMemory(sessionMsgs, otherChats);
     const ledger = buildLedger(earlier, now, tz);
     const lookup = buildDateLookup(message, [...sessionMsgs, ...otherChats], now, tz);

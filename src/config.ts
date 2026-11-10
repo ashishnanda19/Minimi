@@ -8,6 +8,8 @@ export interface Config {
   models: Record<ProviderName, string[]>;
   /** Providers that have a key, in the order they are tried. */
   order: ProviderName[];
+  /** "global": other chats feed the ledger (default). "session": each chat sees only itself. */
+  memoryScope: "global" | "session";
   tavilyKey: string;
   port: number;
   dbPath: string;
@@ -48,7 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     keys,
     order,
     models: {
-      anthropic: list("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
+      anthropic: list("ANTHROPIC_MODEL", get("MODEL") ?? "claude-sonnet-5-5"), // MODEL is the plan's original name
       // Free-tier daily quotas are per model (gemini-2.5-flash is only 20/day), so chain several.
       google: list("GEMINI_MODEL", "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite,gemini-2.5-flash-lite"),
       // Per-model token-per-minute caps on the free tier, so two models double the headroom.
@@ -56,6 +58,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // Pinned, not the "openrouter/free" router: a random pick once returned raw tool-call markup as the answer.
       openrouter: list("OPENROUTER_MODEL", "google/gemma-4-31b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free"),
     },
+    memoryScope: get("MEMORY_SCOPE") === "session" ? "session" : "global",
     tavilyKey: get("TAVILY_API_KEY")!,
     port: Number(env.PORT) || 3000,
     dbPath: get("DB_PATH") ?? "./data/minimi.db",

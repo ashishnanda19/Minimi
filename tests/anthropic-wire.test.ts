@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { describe, expect, it } from "vitest";
 import { ModelPool } from "../src/agent/models.js";
-import { runAgent } from "../src/agent/run.js";
+import { MAX_STEPS, runAgent } from "../src/agent/run.js";
 import { Store } from "../src/store/db.js";
 import { collect, fakeProvider } from "./helpers.js";
 
@@ -69,13 +69,14 @@ describe("what we actually send to Anthropic", () => {
 
   it("on the last allowed step, forbids tool use in a form the API accepts", async () => {
     const bodies: any[] = [];
-    const replies = [toolTurn(["a one"]), toolTurn(["b two"]), textTurn("Done.")];
+    const replies = [...Array.from({ length: MAX_STEPS - 1 }, (_, i) => toolTurn([`query round ${i}`])), textTurn("Done.")];
     const fetchStub = (async (_u: unknown, init: RequestInit) => { bodies.push(JSON.parse(init.body as string)); return replies.shift()!; }) as typeof fetch;
     const model = createAnthropic({ apiKey: "test", fetch: fetchStub })("claude-sonnet-5-5");
     await collect(runAgent({ models: ModelPool.single(model, "anthropic", true), provider: fakeProvider(), store: new Store(":memory:") }, {
       sessionId: "s", message: "q", tz: "UTC", now: new Date("2026-11-10T13:15:00Z"),
     }));
-    expect(bodies).toHaveLength(3);
-    expect(bodies[2].tool_choice?.type === "none" || !bodies[2].tools).toBe(true);
+    expect(bodies).toHaveLength(MAX_STEPS);
+    expect(bodies.at(-1).tool_choice?.type === "none" || !bodies.at(-1).tools).toBe(true);
+    expect(bodies[0].tool_choice?.type).not.toBe("none"); // earlier steps may still search
   });
 });
