@@ -98,6 +98,12 @@ describe("verifyAnswer: citations, dates, coverage", () => {
     expect(verify("Neon's page, published 4 Nov [1], shows the change.", evidence).unsupportedDates).toEqual([]);
     expect(verify("Neon's page, published 9 Nov [1], shows the change.", evidence).unsupportedDates).toEqual(["2026-11-09"]);
   });
+  it("a conversation date is not a claim about a source (regression from a live run)", () => {
+    const evidence = [ev(1, "Neon Launch from $19", { published: "2026-11-04" })];
+    const memory = "[Tue 3 Nov 2026] You asked about Postgres hosting. \"3 November\" = Tue 3 Nov 2026 (2026-11-03)";
+    expect(verify("On Tue 3 Nov you asked about hosting, and Neon is still $19 [1].", evidence, { memoryText: memory }).unsupportedDates).toEqual([]);
+    expect(verify("On 3 Nov you asked; Neon's page, updated 3 Nov [1], says $19.", evidence).unsupportedDates).toEqual(["2026-11-03"]); // a real source-date claim is still checked
+  });
   it("does not police dates that are not attributed to a source", () => {
     expect(verify("As of Tue 10 Nov 2026 nothing changed.", [ev(1, "x")]).unsupportedDates).toEqual([]);
   });

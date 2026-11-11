@@ -1,49 +1,43 @@
 # DESIGN
 
-The example prompts look like search problems. They are **time and memory problems with a search step**: *which* Monday, *which* five tools, *what did I tell you then*. So time and memory are solved in code; the model decides what to search and writes the answer.
+The example prompts look like search problems. They are **memory and time problems with a search step**: *which* Monday, *which* five tools, *what did I tell you then*. So judgement is split: code decides what is remembered, what a date means, whether to search, and whether an answer is supported. The model decides what to search and writes the answer.
 
 ```
-POST /api/chat ─► load memory (SQLite) ─► prompt: rules + calendar + ledger + date lookup
-                  ─► streamText, ONE tool: step 1 all searches in parallel, steps 2-3 only if surprised, step 4 forced prose
-                  ─► ModelPool (Claude if keyed, else free models with failover) ─► SSE ─► persist
+message ─► REMEMBER   recent-chat ledger + full-text retrieval of old chats + exact lookup of any day or span named
+        ─► REASON     earlier answers become a claim checklist; code decides: forbid search / require search / ask which
+        ─► RESEARCH   ONE tool, parallel searches, official sources ranked first, dated + current-page query pair
+        ─► VERIFY     every price, %, version, date checked against sources; wrong citations fixed in code; one repair
+        ─► ModelPool  Claude if keyed, else free models with failover            (per-user memory in SQLite)
 ```
 
 ## Decisions
 
-1. **Memory and time are code, not tools.** A history tool costs a model round trip and breaks the one-tool brief; history is small and timestamped, so exact lookup beats retrieval.
-2. **Dates are resolved by code.** A calendar table replaces model arithmetic; a resolver turns "last Tuesday" or "3 November" into a date and reports what is stored for it ("NO stored messages on 20 Oct; nearest: 3 Nov"). Without it a weak model invented a recall.
-3. **Memory is global across chats** (`MEMORY_SCOPE=session` for per-session): "What did I ask on 3 November?" usually arrives in a *new* chat. Cost: one user, no auth.
-4. **Old answers are claims to re-verify:** one search per entity, old figure beside current, "confirmed" only for dated sources; no shortlist in memory means ask.
-5. **`since` runs two queries:** hard-dated (what was published) plus unfiltered (the undated current pricing page).
-6. **Free-tier failover:** any failure (rate limit, timeout, empty, uncited, raw tool markup) moves to the next model, even mid-stream. A 10 s first-content deadline stops one stalled provider holding the turn; failed models are benched for the provider's own reset hint.
-7. **Plumbing:** code-assigned citation numbers, failed turns store nothing, per-session lock, 8 searches max, results fenced as untrusted.
+1. **Memory is code, not a tool** (a tool costs a round trip and breaks the one-tool brief). Recent chats form a dated ledger; **older ones are found by topic**: SQLite FTS5, BM25 plus recency, and a word counts only if distinctive in that user's history. Memory is per user (a browser id).
+2. **Dates are resolved by code, including spans:** "last Tuesday", "last week", "in October", "2 weeks ago", "this morning" become exact timezone-correct ranges, and the prompt is told what is stored for them ("NO stored messages in that span; nearest: 3 Nov"). Otherwise a weak model invents a recall.
+3. **Search policy is enforced, not requested.** Recall and small talk cannot search (0.4-1.3 s). "Is that still correct?" **must** search first. "Has any of *them* changed?" with nothing remembered cannot search: it asks which.
+4. **Old answers are a claim checklist:** entity + figure + source, listed in the prompt; the verifier flags any the new answer skips.
+5. **`since` runs two queries:** hard-dated (what was published) and unfiltered (the undated current pricing page); results are tagged official or review-site and ranked.
+6. **Every answer is verified, without a model.** Each figure must be in a source the answer cites, in a remembered sentence *about the same entity*, or be arithmetic on those. A wrong citation is **corrected in code**; anything else gets one repair pass (told to attribute earlier figures, not delete them). What remains is shown: a chip, and an underline on the figure.
+7. **Free-tier failover:** any failure (rate limit, timeout, empty, uncited, raw tool markup) moves to the next model, even mid-stream; quotas are per model, so providers take lists. Titles use free models only.
 
-**Rejected:** LangGraph/multi-agent (latency, no gain with one tool) · vector DB (small history, recalled by date) · memory tool or router model (extra hop) · full-page fetch (slow) · Haiku query rewriting (extra hop) · `marked` from a CDN (my renderer escapes first: no XSS, works offline).
+**Rejected:** LangGraph/multi-agent (latency, no gain with one tool) · vector DB (FTS5 plus exact date lookup is exact where it matters, with no embedding calls) · asking the model to self-check (it shares its own blind spot) · full-page fetch (slow).
 
-## Speed (`npm run bench`, `evals/speed.md`)
+**Found by testing, fixed, each with a regression test:** a remembered "$19" for Neon vouched for "$19" about HubSpot · a correct recall was "repaired" by deleting its prices · a sentence splitter cut "26.99.0" in half · a conversation date was flagged as a source date · raw tool-call text shown as an answer · a stalled provider held a turn 75 s.
 
-| change | before → after |
-|---|---|
-| Gemini hidden thinking off | first token 8.5 s → 3.4 s |
-| Parallel searches, 5 CRMs | 14.3 s summed → 3.8 s waited |
-| Per-model deadline | 123 s → 8 s when one provider stalled |
-| Tavily `ultra-fast` (**rejected**) | 4x faster, but results differ (overlap 0.04) and `since` returns 1 vs 5 |
-| Anthropic prompt caching | wired; unmeasured until a key is set |
+## Results (`npm run eval`, 18 live cases, free providers only)
 
-## Results (`npm run eval`: 16 live cases, free tiers)
+**17/18 in the full run**; the miss was a verifier false positive, fixed and re-run green. Judge means (date, honesty, lead, useful): **5.0 / 5.0 / 5.0 / 5.0**. Median first token 3.7 s.
 
-Full run **13/16**; two misses were fixed and re-run alone (`*`), one is the free judge disputing a Node version.
-
-| case | searches | judge | |
+| case | intent | searches | total |
 |---|---|---|---|
-| CRM shortlist, "changed since Monday?" | 5 | 5/5/5/5 | pass |
-| "What did I ask on 3 Nov? Still correct?" | 3 | 5/5/5/5 | pass |
-| "Last Tuesday… Postgres pricing changed?" | 3 | 5/5/5/5 | pass* |
-| date with no record (20 Oct) | 0 | 5/5/5/5 | pass |
-| hostile search result | 1 | ignored | pass* |
-| latest Node LTS | 1 | disputed | fail |
+| CRM shortlist, "changed since Monday?" | reverify | 5 | 19.7 s |
+| "What did I ask on 3 Nov? Still correct?" | reverify | 3 | 19.3 s |
+| "Last Tuesday… Postgres pricing changed?" | reverify | 3 | 5.2 s |
+| old Postgres chat, found by topic | recall | 0 | 0.9 s |
+| "What did I ask you last week?" | recall | 0 | 1.3 s |
+| "Has any of **them** changed…?" (no memory) | asks which | 0 | 1.3 s |
+| hostile search result | lookup | 1 | 2.5 s |
 
-Free quotas are the weak spot (Groq 8k tokens/min, Gemini per-model daily): when they run dry a heavy turn can fall to a slow model. `ANTHROPIC_API_KEY` is tried first and avoids this.
+Speed (`evals/speed.md`): Gemini thinking off 8.5 s → 3.4 s; 5 parallel searches 14.3 s → 3.8 s; a per-model deadline cut a stalled turn from 123 s to 8 s; Tavily `ultra-fast` rejected (different results, broke `since`). Free quotas are the weak spot; `ANTHROPIC_API_KEY` is tried first.
 
-## With another week
-FTS5 + date index for old history · per-user scoping · scheduled re-checks · official-domain boosting · runtime citation verification.
+**Next:** entity-aware retrieval (follow "them" through a shortlist), scheduled re-checks, fetching a pricing table when a snippet lacks the number, real accounts on top of the browser id.

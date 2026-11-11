@@ -57,7 +57,8 @@ export interface VerifyInput {
 const CITATION = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
 /** Wording that frames a figure as something said earlier, not as the current state. */
 const AS_OLD = /\b(you|i|we) (asked|said|told|answered|mentioned|gave|quoted|noted|highlighted|recommended|suggested|listed|stated|shortlisted)\b|\b(earlier|previously|before|originally|back then|at the time|at that time|a while back|last time|was|were|then)\b|→|->|\b(mon|tues|wednes|thurs|fri|satur|sun)day\b|\b\d{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
-const DATE_VERB = /\b(published|dated|announced|released|launched|shipped|updated|posted|on)\b/i;
+/** Verbs that attribute a date to a source. A bare "on" is not one: "On Tue 3 Nov you asked..." dates the conversation, not a web page. */
+const DATE_VERB = /\b(published|dated|announced|released|launched|shipped|updated|posted)\b/i;
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
 const idsIn = (text: string): number[] => [...text.matchAll(CITATION)].flatMap((m) => m[1]!.split(",").map((n) => Number(n.trim())));
@@ -135,12 +136,13 @@ export function verifyAnswer(input: VerifyInput): VerificationReport {
     for (const d of datesIn(e.text, now)) sourceDates.add(d);
   }
   const unsupportedDates: string[] = [];
+  const conversationDates = datesIn(memoryText, now); // dates the user or the record already mention are not claims about a source
   if (evidence.length) {
     for (const u of units(answer)) {
       if (!DATE_VERB.test(u.text)) continue;
       const claimedCites = idsIn(u.text);
       if (!claimedCites.length) continue; // only dates attributed to a specific source are checkable
-      for (const iso of datesIn(u.text, now)) if (!sourceDates.has(iso) && !unsupportedDates.includes(iso)) unsupportedDates.push(iso);
+      for (const iso of datesIn(u.text, now)) if (!sourceDates.has(iso) && !conversationDates.has(iso) && !unsupportedDates.includes(iso)) unsupportedDates.push(iso);
     }
   }
 
