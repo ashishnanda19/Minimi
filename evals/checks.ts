@@ -1,5 +1,6 @@
 import type { AgentEvent, Metrics } from "../src/agent/run.js";
 import type { Case } from "./cases.js";
+import { describeProblems } from "../src/agent/verify.js";
 
 export interface Outcome {
   failures: string[];
@@ -22,10 +23,12 @@ export function checkCase(c: Case, events: AgentEvent[], seen: { title: string; 
 
   const failures: string[] = [];
   if (err || !done) failures.push(`run failed: ${err?.message ?? "no done event"}`);
-  const metrics: Metrics = done?.metrics ?? { model: "", fallbacks: [], ttftMs: null, firstStatusMs: null, searchWallMs: 0, totalMs: 0, steps: 0, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 }, searches: [], intent: "lookup" as const, repaired: false, retrieved: 0, priorClaims: 0 };
+  const metrics: Metrics = done?.metrics ?? { model: "", fallbacks: [], ttftMs: null, firstStatusMs: null, searchWallMs: 0, totalMs: 0, steps: 0, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 }, searches: [], intent: "lookup" as const, repaired: false, citationsFixed: 0, retrieved: 0, priorClaims: 0 };
   const ex = c.expect;
 
   const searched = metrics.searches.length > 0;
+  const verification = events.find((e): e is Extract<AgentEvent, { type: "verification" }> => e.type === "verification")?.report;
+  if (verification && !verification.ok) failures.push(`verification still flags the final answer: ${describeProblems(verification).join(" | ").slice(0, 300)}`);
   if (ex.search === "yes" && !searched) failures.push("expected a search, got none");
   if (ex.search === "no" && searched) failures.push(`expected no search, ran ${metrics.searches.length}`);
   if (ex.minSearches && metrics.searches.length < ex.minSearches) {

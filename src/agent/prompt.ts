@@ -41,7 +41,7 @@ export interface Extras {
   /** Specific claims from earlier answers, to be re-verified. */
   claims?: string;
   /** What the code decided about searching this turn. */
-  searchPolicy?: "forbid" | "require";
+  searchPolicy?: "forbid" | "require" | "clarify";
 }
 
 export function buildSystem(now: Date, tz: string, ledger: string, cacheable: boolean, extras: Extras = {}): SystemModelMessage[] {
@@ -62,6 +62,7 @@ export function buildSystem(now: Date, tz: string, ledger: string, cacheable: bo
   }
   if (extras.claims) parts.push("", "# Claims from your earlier answers (the user may want these re-verified; address EVERY entity listed, with old figure beside current)", extras.claims);
   if (extras.searchPolicy === "forbid") parts.push("", "# This turn", "Answer from the record above. Do not search: the question is about the conversation, not the web.");
+  if (extras.searchPolicy === "clarify") parts.push("", "# This turn", "The user refers back to something (\"them\", \"that\") but nothing in the record says what. Do not search and do not guess: ask ONE short question about what they mean, and offer to check as soon as they say.");
   if (extras.searchPolicy === "require") parts.push("", "# This turn", "The question is about whether something is still true or has changed, so you must search before answering: one query per entity.");
   const dynamic = parts.join("\n");
 

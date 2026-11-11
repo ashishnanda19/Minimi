@@ -458,5 +458,143 @@
       "sinceUsed": "2026-11-03"
     },
     "rubric": "Resolves last Tuesday to Tue 3 Nov and searches with that date; reports dated items with citations, or says nothing notable was found as of today. Does not invent announcements."
+  },
+  {
+    "id": "topic-recall-old-chat",
+    "question": "Remind me, which Postgres host did you recommend a while back?",
+    "seed": [
+      {
+        "id": "aug",
+        "messages": [
+          {
+            "role": "user",
+            "at": "2026-08-12T09:00:00Z",
+            "content": "What's the cheapest managed Postgres hosting for a small SaaS?"
+          },
+          {
+            "role": "assistant",
+            "at": "2026-08-12T09:00:40Z",
+            "content": "Neon has a free tier and a Launch plan from about $19/mo [1]; Supabase Pro is $25/mo per project [2].",
+            "sources": [
+              {
+                "id": 1,
+                "title": "Neon pricing",
+                "url": "https://neon.com/pricing"
+              },
+              {
+                "id": 2,
+                "title": "Supabase pricing",
+                "url": "https://supabase.com/pricing"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "nov",
+        "messages": [
+          {
+            "role": "user",
+            "at": "2026-11-02T10:00:00Z",
+            "content": "How do I center a div?"
+          },
+          {
+            "role": "assistant",
+            "at": "2026-11-02T10:00:30Z",
+            "content": "Here is a short answer."
+          },
+          {
+            "role": "user",
+            "at": "2026-11-05T10:00:00Z",
+            "content": "What is Bun?"
+          },
+          {
+            "role": "assistant",
+            "at": "2026-11-05T10:00:30Z",
+            "content": "Here is a short answer."
+          },
+          {
+            "role": "user",
+            "at": "2026-11-08T10:00:00Z",
+            "content": "Explain Rust lifetimes"
+          },
+          {
+            "role": "assistant",
+            "at": "2026-11-08T10:00:30Z",
+            "content": "Here is a short answer."
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "search": "either",
+      "mustMatch": [
+        "neon|supabase"
+      ]
+    },
+    "rubric": "Finds the August conversation by topic (it is months old and not in the recent record): recalls that Neon and Supabase were recommended, ideally with the prices quoted then, and the date. Does not claim to have no record."
+  },
+  {
+    "id": "range-last-week",
+    "question": "What did I ask you last week?",
+    "seed": [
+      {
+        "id": "nov",
+        "messages": [
+          {
+            "role": "user",
+            "at": "2026-11-02T10:00:00Z",
+            "content": "How do I center a div?"
+          },
+          {
+            "role": "assistant",
+            "at": "2026-11-02T10:00:30Z",
+            "content": "Here is a short answer."
+          },
+          {
+            "role": "user",
+            "at": "2026-11-05T10:00:00Z",
+            "content": "What is Bun?"
+          },
+          {
+            "role": "assistant",
+            "at": "2026-11-05T10:00:30Z",
+            "content": "Here is a short answer."
+          },
+          {
+            "role": "user",
+            "at": "2026-11-08T10:00:00Z",
+            "content": "Explain Rust lifetimes"
+          },
+          {
+            "role": "assistant",
+            "at": "2026-11-08T10:00:30Z",
+            "content": "Here is a short answer."
+          },
+          {
+            "role": "user",
+            "at": "2026-11-09T10:00:00Z",
+            "content": "This week's question"
+          },
+          {
+            "role": "assistant",
+            "at": "2026-11-09T10:00:30Z",
+            "content": "ok"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "search": "no",
+      "mustMatch": [
+        "center",
+        "bun",
+        "rust|lifetime"
+      ],
+      "mustNotMatch": [
+        "this week's question"
+      ]
+    },
+    "rubric": "Resolves 'last week' to Mon 2 Nov - Sun 8 Nov and lists exactly the three questions asked then (centering a div on 2 Nov, Bun on 5 Nov, Rust lifetimes on 8 Nov). Does NOT include the question from Mon 9 Nov, which is this week."
   }
 ]

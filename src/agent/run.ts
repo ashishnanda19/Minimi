@@ -9,7 +9,7 @@ import { retryAfterMs, statusOf, type ModelPool, type PoolEntry } from "./models
 import { buildSystem } from "./prompt.js";
 import { formatRecalled, retrieveRelevant } from "./retrieval.js";
 import { normalizeCitations, SourceRegistry, type SearchLogEntry } from "./sources.js";
-import { describeProblems, verifyAnswer, type EvidenceSource, type VerificationReport } from "./verify.js";
+import { correctCitations, describeProblems, verifyAnswer, type EvidenceSource, type VerificationReport } from "./verify.js";
 
 /** Round 1 searches, later rounds only if something unexpected turned up, the last round must be the answer. */
 export const MAX_STEPS = 4;
@@ -69,6 +69,8 @@ export interface Metrics {
   intent: IntentKind;
   /** The answer was rewritten once because the checker found problems. */
   repaired: boolean;
+  /** Citation numbers corrected in code (no model call). */
+  citationsFixed: number;
   /** Earlier conversations found by topic, and earlier claims put on the re-verification checklist. */
   retrieved: number;
   priorClaims: number;
@@ -241,7 +243,7 @@ const REPAIR_SYSTEM =
  */
 async function* repairAnswer(
   entry: PoolEntry,
-  args: { question: string; draft: string; evidence: EvidenceSource[]; problems: string[]; timeoutMs: number },
+  args: { question: string; draft: string; evidence: EvidenceSource[]; earlier: string; problems: string[]; timeoutMs: number },
   signal: AbortSignal | undefined,
 ): AsyncGenerator<AgentEvent, string | undefined> {
   const evidence = args.evidence
@@ -249,11 +251,12 @@ async function* repairAnswer(
     .join("\n\n");
   const prompt = [
     `USER QUESTION:\n${args.question}`,
-    `EVIDENCE (the only facts you may use):\n${evidence || "(no web evidence this turn)"}`,
+    `EVIDENCE FROM THE WEB THIS TURN:\n${evidence || "(no web evidence this turn)"}`,
+    args.earlier ? `EARLIER CONVERSATION (things you already told the user; you may restate them, but as what you said then, with the date):\n${args.earlier}` : "",
     `YOUR DRAFT ANSWER:\n${args.draft}`,
     `PROBLEMS FOUND BY THE CHECKER:\n${args.problems.map((p) => `- ${p}`).join("\n")}`,
-    "Rewrite the answer fixing every problem. Keep citation numbers exactly as in the evidence, keep the same structure and a similar length, and where the evidence cannot support a claim say you could not verify it. Output only the corrected answer.",
-  ].join("\n\n");
+    "Rewrite the answer fixing every problem. Never delete a fact just because it is missing from the web evidence: if the earlier conversation contains it, keep it and attribute it to when you said it. Keep citation numbers exactly as in the evidence, keep the same structure and a similar length, and where the evidence cannot support a claim say you could not verify it. Output only the corrected answer.",
+  ].filter(Boolean).join("\n\n");
 
   const timeout = AbortSignal.timeout(args.timeoutMs);
   const result = streamText({
@@ -313,12 +316,13 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
       ...lookup.messages,
       ...recalled.flatMap((r) => (r.answerMessage ? [r.answerMessage] : [])),
     ]).slice(0, 12);
-    const intent = classifyIntent(message, { hasDateRefs: lookup.text !== "", hasPriorClaims: priorClaims.length > 0 });
+    const hasContext = live.length > 0 || recalled.length > 0 || lookup.messages.length > 0 || earlier.length > 0;
+    const intent = classifyIntent(message, { hasDateRefs: lookup.text !== "", hasPriorClaims: priorClaims.length > 0, hasContext });
     const claimsText = intent.kind === "reverify" || intent.kind === "change" ? claimsBlock(priorClaims, tz) : "";
     const messages = toModelMessages(live, message, now, tz);
     const extras = {
       lookup: lookup.text, retrieved: retrievedText, claims: claimsText,
-      searchPolicy: intent.forbidSearch ? ("forbid" as const) : intent.requireSearch ? ("require" as const) : undefined,
+      searchPolicy: intent.clarify ? ("clarify" as const) : intent.forbidSearch ? ("forbid" as const) : intent.requireSearch ? ("require" as const) : undefined,
     };
 
     const fallbacks: Metrics["fallbacks"] = [];
@@ -405,6 +409,18 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
     let finalAnswer = outcome.answer;
     let report = check(finalAnswer);
     let repaired = false;
+    let citationsFixed = 0;
+
+    // Cheapest fix first: a wrong citation number is corrected in code, with no model call.
+    const corrected = correctCitations(finalAnswer, report);
+    if (corrected.fixed > 0) {
+      const after = check(corrected.answer);
+      if (describeProblems(after).length < describeProblems(report).length) {
+        yield { type: "reset" };
+        yield { type: "token", text: corrected.answer };
+        finalAnswer = corrected.answer; report = after; citationsFixed = corrected.fixed;
+      }
+    }
     const problems = describeProblems(report);
     if (!report.ok && problems.length) {
       const entry = models.ordered().find((e) => e.name === used);
@@ -413,7 +429,7 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
         try {
           const draft = finalAnswer;
           yield { type: "reset" };
-          const fixed = yield* repairAnswer(entry, { question: message, draft, evidence, problems, timeoutMs: 25_000 }, signal);
+          const fixed = yield* repairAnswer(entry, { question: message, draft, evidence, earlier: [retrievedText, claimsText, lookup.text].filter(Boolean).join("\n"), problems, timeoutMs: 25_000 }, signal);
           if (signal?.aborted) return;
           const fixedReport = fixed?.trim() && !BROKEN_TOOL_MARKUP.test(fixed) ? check(fixed) : undefined;
           if (fixed && fixedReport && describeProblems(fixedReport).length < problems.length) {
@@ -447,7 +463,7 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
       metrics: {
         model: used, fallbacks, ttftMs: outcome.ttftMs, firstStatusMs: outcome.firstStatusMs, searchWallMs: outcome.searchWallMs,
         totalMs, steps: outcome.steps, usage: outcome.usage, searches: outcome.searches,
-        intent: intent.kind, repaired, retrieved: recalled.length, priorClaims: priorClaims.length,
+        intent: intent.kind, repaired, citationsFixed, retrieved: recalled.length, priorClaims: priorClaims.length,
       },
     };
   } catch (err) {

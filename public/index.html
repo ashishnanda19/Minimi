@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>minimi</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231c1c1c'/%3E%3Cpath d='M7 14V6l6 4h6l6-4v8a9 9 0 0 1-18 0z' fill='%23fff'/%3E%3Ccircle cx='12.5' cy='16' r='1.5' fill='%231c1c1c'/%3E%3Ccircle cx='19.5' cy='16' r='1.5' fill='%231c1c1c'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="apple-touch-icon" href="/logo.png">
 <style>
   /*
    * Look and feel follow the minimi desktop app: near-black page, big rounded cards (filled on the left, outlined on the
@@ -40,7 +41,7 @@
   /* ---------- app bar ---------- */
   .appbar { display: flex; align-items: center; gap: 8px; padding: 14px 24px 12px; }
   .brand { display: flex; align-items: center; gap: 11px; font: 700 27px/1 ui-rounded, "SF Pro Rounded", "Nunito", "Poppins", system-ui, sans-serif; letter-spacing: -.035em; }
-  .brand .glyph { width: 34px; height: 30px; color: var(--ink); } .brand .glyph svg { width: 100%; height: 100%; fill: currentColor; stroke: none; }
+  .brand .brand-logo { width: 36px; height: 34px; border-radius: 9px; display: block; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 20%, transparent); transition: background .3s; }
   .dot.bad { background: #e5484d; box-shadow: 0 0 0 4px rgba(229,72,77,.2); }
   .spacer { flex: 1; }
@@ -88,10 +89,9 @@
   #scroller { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
   #thread { max-width: 760px; margin: 0 auto; padding: 8px 24px 28px; display: flex; flex-direction: column; gap: 26px; }
 
-  .mark { width: 30px; height: 30px; border-radius: 10px; background: var(--ink); color: var(--on-ink); display: grid; place-items: center; flex: none; }
-  .mark svg { width: 20px; height: 20px; fill: currentColor; stroke: none; }
+  .mark { width: 32px; height: 30px; border-radius: 9px; display: block; flex: none; object-fit: cover; box-shadow: 0 0 0 1px rgba(128,128,128,.22); }
   .msg.user { align-self: flex-end; max-width: min(82%, 600px); background: var(--bubble); padding: 10px 17px; border-radius: 22px 22px 7px 22px; white-space: pre-wrap; word-break: break-word; }
-  .msg.assistant { display: grid; grid-template-columns: 30px 1fr; gap: 14px; align-items: start; }
+  .msg.assistant { display: grid; grid-template-columns: 32px 1fr; gap: 14px; align-items: start; }
   .content { min-width: 0; }
   .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 11px; margin-top: 9px; font-size: 12px; color: var(--faint); }
   .act { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; margin-left: -9px; border-radius: 8px; color: var(--muted); font-size: 12px; }
@@ -122,7 +122,7 @@
   .error button { border: 1px solid currentColor; border-radius: 9px; padding: 4px 14px; }
 
   .empty { text-align: center; padding: 8vh 0 0; }
-  .empty .mark { width: 58px; height: 58px; border-radius: 19px; margin: 0 auto 20px; box-shadow: var(--shadow); } .empty .mark svg { width: 38px; height: 38px; }
+  .empty .mark { width: 66px; height: 62px; border-radius: 19px; margin: 0 auto 20px; box-shadow: var(--shadow); }
   .empty h1 { font-size: 28px; letter-spacing: -.03em; margin: 0 0 8px; font-weight: 650; }
   .empty p { color: var(--muted); margin: 0 auto 28px; max-width: 460px; }
   .suggest { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; text-align: left; }
@@ -153,13 +153,39 @@
   .mem .tx span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .mem .tx small { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
   .mem-empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
-  .discover { position: relative; overflow: hidden; min-height: 236px; flex: none; }
+  /* The kitten's picture has a flat #202020 background, so the card uses exactly that colour and the picture sits in it seamlessly on both themes. */
+  .rail .card.discover { position: relative; overflow: hidden; min-height: 236px; flex: none; background: #202020; border-color: transparent; color: #f2f2f2; --text: #f2f2f2; --muted: #9b9b9b; --faint: #7d7d7d; --hover: #2c2c2c; }
   .check { display: flex; align-items: center; gap: 12px; padding: 5px 0; font-size: 15px; width: 100%; max-width: calc(100% - 96px); text-align: left; position: relative; z-index: 1; line-height: 1.35; }
   .check .box { width: 24px; height: 24px; border-radius: 8px; border: 1.5px solid var(--faint); display: grid; place-items: center; color: transparent; flex: none; transition: all .2s; }
   .check.done .box { background: var(--green); border-color: var(--green); color: #fff; } .check.done .box svg { width: 15px; height: 15px; stroke-width: 2.6; }
   .check.done span:last-child { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
   .check u { text-underline-offset: 3px; }
-  .cat { position: absolute; right: 8px; bottom: -4px; width: 122px; height: 122px; pointer-events: none; }
+  .cat { position: absolute; right: 0; bottom: 0; width: 166px; height: 108px; pointer-events: none; display: block; }
+
+  /* ---------- verification ---------- */
+  .verify { margin-top: 12px; }
+  .vchip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px 4px 9px; border-radius: 999px; border: 1px solid var(--rail-line); color: var(--muted); font-size: 12.5px; }
+  .vchip svg { width: 14px; height: 14px; stroke-width: 2.4; }
+  .vchip.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 38%, transparent); }
+  .vchip.warn { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 50%, transparent); }
+  .vchip:hover { background: var(--hover); }
+  .vdetail { margin-top: 8px; padding: 12px 16px; border: 1px solid var(--rail-line); border-radius: 14px; font-size: 13px; color: var(--muted); }
+  .vdetail ul { margin: 0; padding-left: 18px; } .vdetail li { margin: 3px 0; } .vdetail b { color: var(--text); font-weight: 600; }
+  mark.unv { background: color-mix(in srgb, var(--gold) 24%, transparent); color: inherit; border-bottom: 2px solid var(--gold); border-radius: 3px; padding: 0 2px; cursor: help; }
+
+  /* ---------- confirm dialog ---------- */
+  .modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+  .modal-scrim.open { display: flex; }
+  .modal { width: min(420px, 100%); background: var(--card); color: var(--text); border: 1px solid var(--rail-line); border-radius: 22px; padding: 24px; box-shadow: var(--shadow); }
+  :root[data-resolved="dark"] .modal { background: #2a2a2a; }
+  .modal h3 { margin: 0 0 8px; font-size: 18px; letter-spacing: -.02em; }
+  .modal p { margin: 0 0 20px; color: var(--muted); font-size: 14.5px; }
+  .modal p b { color: var(--text); font-weight: 600; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+  .modal-actions button { padding: 9px 18px; border-radius: 12px; font-weight: 600; font-size: 14px; border: 1px solid var(--rail-line); }
+  .modal-actions button:hover { background: var(--hover); }
+  .modal-actions .danger { background: #d92d20; border-color: #d92d20; color: #fff; }
+  .modal-actions .danger:hover { background: #b42318; border-color: #b42318; }
 
   /* ---------- settings popover ---------- */
   .pop { position: fixed; top: 64px; right: 24px; width: 300px; padding: 18px; border-radius: 20px; background: var(--card); border: 1px solid var(--rail-line); box-shadow: var(--shadow); z-index: 60; display: none; }
@@ -182,7 +208,7 @@
     .shell.rail-open .scrim, .shell.drawer .scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; }
   }
   @media (max-width: 860px) {
-    .appbar { padding: 10px 12px 8px; } .brand { font-size: 23px; } .brand .glyph { width: 29px; height: 26px; }
+    .appbar { padding: 10px 12px 8px; } .brand { font-size: 23px; } .brand .brand-logo { width: 31px; height: 29px; }
     #menu { display: grid; }
     .grid, .grid.no-side { grid-template-columns: minmax(0, 1fr); padding: 0; gap: 0; }
     .sidebar { display: flex !important; position: fixed; inset: 0 auto 0 0; width: min(88vw, 340px); z-index: 50; border-radius: 0 var(--r) var(--r) 0; transform: translateX(-105%); transition: transform .24s ease; box-shadow: var(--shadow); background: var(--card); }
@@ -191,7 +217,7 @@
     .suggest { grid-template-columns: 1fr; }
     #thread { padding: 6px 14px 24px; } .composer-wrap { padding: 4px 12px max(14px, env(safe-area-inset-bottom)); }
     .empty { padding-top: 5vh; } .empty h1 { font-size: 24px; }
-    .msg.assistant { grid-template-columns: 26px 1fr; gap: 11px; } .msg.assistant .mark { width: 26px; height: 26px; border-radius: 9px; }
+    .msg.assistant { grid-template-columns: 28px 1fr; gap: 11px; } .msg.assistant .mark { width: 28px; height: 26px; border-radius: 8px; }
     .hint .desk { display: none; } .pop { right: 12px; left: 12px; width: auto; top: 58px; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
@@ -201,7 +227,7 @@
 <div class="shell" id="app">
   <header class="appbar">
     <button class="icon-btn" id="menu" aria-label="Open chats" title="Open chats"></button>
-    <div class="brand"><span class="glyph" id="brandGlyph"></span>minimi<span class="dot" id="statusDot" title="Connected"></span></div>
+    <div class="brand"><img class="brand-logo" src="/logo.png" alt="" width="36" height="34">minimi<span class="dot" id="statusDot" title="Connected"></span></div>
     <span class="spacer"></span>
     <button class="icon-btn" id="memBtn" aria-label="Show memories" title="Recent memories"></button>
     <button class="icon-btn" id="gear" aria-label="Settings" title="Settings" aria-haspopup="dialog"></button>
@@ -239,27 +265,26 @@
       <div class="card discover">
         <h3>Discover minimi</h3>
         <div id="checks"></div>
-        <svg class="cat" viewBox="0 0 120 120" aria-hidden="true">
-          <ellipse cx="62" cy="118" rx="48" ry="30" fill="#d9cdbb"/>
-          <path d="M22 50 28 14l24 20zM102 50 96 14 72 34z" fill="#e6dccb"/><path d="M30 44l3-18 13 11zM94 44l-3-18-13 11z" fill="#e9b4b4"/>
-          <ellipse cx="62" cy="64" rx="40" ry="35" fill="#efe6d6"/>
-          <path d="M62 30c-9 0-16 3-20 9 7 2 12 6 14 12 2-7 4-14 6-21zM62 30c9 0 16 3 20 9-7 2-12 6-14 12-2-7-4-14-6-21z" fill="#b7a58f" opacity=".85"/>
-          <ellipse cx="46" cy="66" rx="6.5" ry="7.5" fill="#3a2e25"/><ellipse cx="78" cy="66" rx="6.5" ry="7.5" fill="#3a2e25"/>
-          <circle cx="48" cy="63.5" r="2.2" fill="#fff"/><circle cx="80" cy="63.5" r="2.2" fill="#fff"/>
-          <path d="M57 76h10l-5 6z" fill="#e48c8c"/><path d="M62 82c0 4-4 6-8 4M62 82c0 4 4 6 8 4" stroke="#7a6652" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <path d="M30 76 14 73M30 82 15 85M94 76l16-3M94 82l15 3" stroke="#a89a88" stroke-width="1.2" stroke-linecap="round"/>
-        </svg>
+        <img class="cat" src="/discover-cat.png" alt="" width="166" height="108">
       </div>
     </aside>
   </div>
 </div>
 <div class="scrim" id="scrim"></div>
 
+<div class="modal-scrim" id="modal">
+  <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="mTitle" aria-describedby="mText">
+    <h3 id="mTitle"></h3>
+    <p id="mText"></p>
+    <div class="modal-actions"><button id="mCancel" type="button">Cancel</button><button id="mOk" class="danger" type="button">Delete</button></div>
+  </div>
+</div>
+
 <div class="pop" id="pop" role="dialog" aria-label="Settings">
   <section><h4>Appearance</h4>
     <div class="seg" id="seg"><button data-theme-opt="light" aria-pressed="false">Light</button><button data-theme-opt="dark" aria-pressed="false">Dark</button><button data-theme-opt="system" aria-pressed="true">System</button></div>
   </section>
-  <section><h4>Memory</h4><p>minimi remembers every chat you keep. Deleting a chat makes it forget that conversation too.</p></section>
+  <section><h4>Memory</h4><p>minimi remembers the chats you keep, and only yours: they stay private to this browser. Deleting a chat makes it forget that conversation too.</p></section>
   <section><h4>Shortcuts</h4>
     <div class="keys"><kbd>Enter</kbd><span>Send</span><kbd>Shift</kbd><span>+ Enter for a new line</span><kbd>⌘K</kbd><span>Search chats</span><kbd>Esc</kbd><span>Close panels</span></div>
   </section>
@@ -281,12 +306,16 @@ const ICONS = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   railpanel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/>',
   cal: '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/>', chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
-  edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/>',
+  edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/>', warn: '<path d="M12 4 2.5 20h19zM12 10v4.5M12 17.5v.01"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
-const CAT = '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 14V6l6 4h6l6-4v8a9 9 0 0 1-18 0z"/><circle cx="12.5" cy="16" r="1.5" fill="var(--ink)"/><circle cx="19.5" cy="16" r="1.5" fill="var(--ink)"/></svg>';
+const markImg = () => { const i = el("img", "mark"); i.src = "/logo.png"; i.alt = ""; i.width = 32; i.height = 30; return i; };
+
+/* Each browser has its own private id, sent with every request, so chats and memory never mix between people. */
+const USER = store.get("minimi.user") || crypto.randomUUID();
+store.set("minimi.user", USER);
+const api = (path, init = {}) => fetch(path, { ...init, headers: { ...(init.headers || {}), "x-user-id": USER } });
 document.querySelectorAll("[data-i]").forEach((n) => { n.outerHTML = icon(n.dataset.i); });
-$("brandGlyph").innerHTML = CAT.replaceAll('fill="var(--ink)"', 'fill="var(--page)"'); // eyes cut through to the page, like the logo
 $("menu").innerHTML = icon("menu"); $("memBtn").innerHTML = icon("railpanel"); $("gear").innerHTML = icon("gear");
 $("new").innerHTML = icon("edit"); $("collapse").innerHTML = icon("panel"); $("expand").innerHTML = icon("panel"); $("send").innerHTML = icon("up");
 
@@ -387,10 +416,31 @@ function renderHistory() {
     row.append(open, del); box.append(row);
   }
 }
-async function refreshSessions() { try { sessions = (await (await fetch("/api/sessions")).json()).sessions ?? []; } catch {} renderHistory(); }
+async function refreshSessions() { try { sessions = (await (await api("/api/sessions")).json()).sessions ?? []; } catch {} renderHistory(); }
+/* A styled replacement for window.confirm: keyboard friendly, focuses the safe button, closes on Escape or a click outside. */
+function askConfirm({ title, html, ok }) {
+  return new Promise((resolve) => {
+    const scrim = $("modal"), cancel = $("mCancel"), yes = $("mOk");
+    const previous = document.activeElement;
+    $("mTitle").textContent = title; $("mText").innerHTML = html; yes.textContent = ok;
+    scrim.classList.add("open");
+    cancel.focus();
+    const finish = (v) => { scrim.classList.remove("open"); scrim.onclick = cancel.onclick = yes.onclick = null; removeEventListener("keydown", onKey, true); previous?.focus?.(); resolve(v); };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); finish(false); }
+      if (e.key === "Tab") { e.preventDefault(); (document.activeElement === cancel ? yes : cancel).focus(); } // focus stays inside the dialog
+    };
+    addEventListener("keydown", onKey, true);
+    cancel.onclick = () => finish(false); yes.onclick = () => finish(true);
+    scrim.onclick = (e) => { if (e.target === scrim) finish(false); };
+  });
+}
+const escapeHtml = (t) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
 async function removeSession(s) {
-  if (!confirm(`Delete "${s.title}"?\n\nminimi will also forget this conversation.`)) return;
-  await fetch(`/api/sessions/${encodeURIComponent(s.id)}`, { method: "DELETE" }).catch(() => {});
+  const yes = await askConfirm({ title: "Delete this chat?", html: `<b>${escapeHtml(s.title)}</b><br>minimi will also forget this conversation. This can't be undone.`, ok: "Delete" });
+  if (!yes) return;
+  await api(`/api/sessions/${encodeURIComponent(s.id)}`, { method: "DELETE" }).catch(() => {});
   if (s.id === sessionId) newChat();
   await Promise.all([refreshSessions(), refreshMemories()]);
 }
@@ -400,7 +450,7 @@ $("search").addEventListener("input", renderHistory);
 const DATEISH = /\b(yesterday|today|last \w+day|\d+ days? ago|\d{1,2}(st|nd|rd|th)? (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w* \d{1,2})/i;
 async function refreshMemories() {
   let memories = [];
-  try { memories = (await (await fetch("/api/memories")).json()).memories ?? []; } catch {}
+  try { memories = (await (await api("/api/memories")).json()).memories ?? []; } catch {}
   const box = $("mems"); box.replaceChildren();
   if (!memories.length) { box.append(el("div", "mem-empty", "Nothing yet. Ask me something and I'll remember it.")); return; }
   for (const m of memories) {
@@ -422,22 +472,73 @@ function sourcesBar(items) {
   }
   return bar;
 }
+/* ---------- verification: what the checker found, shown honestly ---------- */
+function problemsOf(r) {
+  const out = [];
+  for (const f of r.figures || []) {
+    if (f.status === "unsupported") out.push(`<b>${escapeHtml(f.figure)}</b>: not found in any source`);
+    if (f.status === "misattributed") out.push(`<b>${escapeHtml(f.figure)}</b>: appears in ${f.foundIn.map((n) => `[${n}]`).join("")}, not the source cited`);
+  }
+  for (const n of r.dangling || []) out.push(`Citation <b>[${n}]</b> matches no source`);
+  for (const d of r.unsupportedDates || []) out.push(`The date <b>${escapeHtml(d)}</b> is not shown by the source cited`);
+  for (const e of r.uncovered || []) out.push(`<b>${escapeHtml(e)}</b> from the earlier answer was not addressed`);
+  if (r.uncited) out.push("The answer cites no source for its facts");
+  return out;
+}
+function verifyBar(report, repaired) {
+  if (!report || (report.ok && !report.checked)) return null; // nothing checkable (small talk, recall): stay quiet
+  const wrap = el("div", "verify");
+  const issues = problemsOf(report);
+  const chip = el("button", "vchip " + (report.ok ? "ok" : "warn")); chip.type = "button";
+  chip.innerHTML = icon(report.ok ? "check" : "warn") + (report.ok
+    ? `${report.checked} ${report.checked === 1 ? "figure" : "figures"} checked against sources${repaired ? " · corrected" : ""}`
+    : `${issues.length} ${issues.length === 1 ? "thing" : "things"} to double-check`);
+  chip.setAttribute("aria-expanded", "false");
+  const detail = el("div", "vdetail"); detail.hidden = true;
+  detail.innerHTML = report.ok
+    ? `Every price, percentage and version number in this answer was found in the sources it cites, in what you told me earlier, or is simple arithmetic on those.`
+    : `<ul>${issues.map((i) => `<li>${i}</li>`).join("")}</ul>`;
+  chip.onclick = () => { detail.hidden = !detail.hidden; chip.setAttribute("aria-expanded", String(!detail.hidden)); };
+  wrap.append(chip, detail);
+  return wrap;
+}
+/* Underline the figures the checker could not support, in the answer text itself. */
+function markFigures(body, report) {
+  const bad = (report?.figures || []).filter((f) => f.status === "unsupported" || f.status === "misattributed");
+  for (const f of bad) {
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest(".cite, mark.unv, pre, code") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const at = n.nodeValue.indexOf(f.figure);
+      if (at < 0) continue;
+      const after = n.splitText(at); after.splitText(f.figure.length);
+      const mark = el("mark", "unv"); mark.title = f.status === "unsupported" ? "Not found in any source" : "Not in the source cited here";
+      after.replaceWith(mark); mark.append(after);
+      break;
+    }
+  }
+}
+
 function metaRow(rawText, parts) {
   const row = el("div", "meta");
   const copy = el("button", "act", icon("copy") + "Copy"); copy.type = "button";
   copy.onclick = async () => { try { await navigator.clipboard.writeText(rawText()); copy.innerHTML = icon("check") + "Copied"; setTimeout(() => (copy.innerHTML = icon("copy") + "Copy"), 1600); } catch {} };
   row.append(copy); for (const p of parts.filter(Boolean)) row.append(el("span", "", p)); return row;
 }
-function addAssistant(text = "", sources = [], iso, modelLabel) {
+function addAssistant(text = "", sources = [], iso, modelLabel, verification) {
   const m = el("div", "msg assistant"); const content = el("div", "content");
   const body = el("div", "body", renderMarkdown(text, sources)); content.append(body);
-  m.append(el("span", "mark", CAT), content);
-  if (text) { if (sources.length) content.append(sourcesBar(sources)); content.append(metaRow(() => text, [iso && fmtTime(iso), modelLabel])); }
+  m.append(markImg(), content);
+  if (text) {
+    markFigures(body, verification);
+    if (sources.length) content.append(sourcesBar(sources));
+    const v = verifyBar(verification); if (v) content.append(v);
+    content.append(metaRow(() => text, [iso && fmtTime(iso), modelLabel]));
+  }
   thread.append(m); return { m, body, content };
 }
 function showEmpty() {
   const box = el("div", "empty");
-  box.append(el("span", "mark", CAT), el("h1", "", "What do you want to know?"), el("p", "", "I search the live web, work out dates for you, and remember everything we have talked about."));
+  box.append(markImg(), el("h1", "", "What do you want to know?"), el("p", "", "I search the live web, work out dates for you, and remember everything we have talked about."));
   const cards = el("div", "suggest");
   const items = [
     ["On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing since?", "Re-checks a shortlist"],
@@ -451,11 +552,11 @@ function showEmpty() {
 function setHeader(title, model) { $("title").textContent = title || "New chat"; const c = $("modelChip"); c.textContent = model || ""; c.classList.toggle("show", Boolean(model)); }
 async function loadHistory() {
   try {
-    const { messages = [] } = await (await fetch(`/api/history?sessionId=${encodeURIComponent(sessionId)}`)).json();
+    const { messages = [], title: savedTitle } = await (await api(`/api/history?sessionId=${encodeURIComponent(sessionId)}`)).json();
     thread.replaceChildren();
     if (!messages.length) { setHeader("New chat"); return showEmpty(); }
-    setHeader(messages.find((m) => m.role === "user")?.content.replace(/\s+/g, " ").slice(0, 80));
-    for (const m of messages) m.role === "user" ? addUser(m.content) : addAssistant(m.content, m.sources, m.timestamp);
+    setHeader(savedTitle || messages.find((m) => m.role === "user")?.content.replace(/\s+/g, " ").slice(0, 80));
+    for (const m of messages) m.role === "user" ? addUser(m.content) : addAssistant(m.content, m.sources, m.timestamp, undefined, m.verification);
     toBottom();
   } catch { thread.replaceChildren(); setHeader("New chat"); showEmpty(); }
 }
@@ -504,23 +605,27 @@ async function send(retry = false) {
   const status = el("div", "status", `<span class="dots"><i></i><i></i><i></i></span><span>Thinking</span>`);
   status.setAttribute("aria-live", "polite"); content.prepend(status); toBottom();
   controller = new AbortController(); setBusy(true);
-  let raw = "", sources = [], frame = 0, model = "", ms = 0;
+  let raw = "", sources = [], frame = 0, model = "", ms = 0, report = null, repaired = false, serverTitle = "";
   const paint = () => { frame = 0; const stick = nearBottom(); body.innerHTML = renderMarkdown(raw, sources); if (stick) toBottom(); };
   try {
-    const res = await fetch("/api/chat", { method: "POST", signal: controller.signal, headers: { "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify({ sessionId, message: text, tz }) });
+    const res = await api("/api/chat", { method: "POST", signal: controller.signal, headers: { "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify({ sessionId, message: text, tz }) });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status})`);
     for await (const ev of sseEvents(res)) {
-      if (ev.type === "status") status.lastElementChild.textContent = ev.text;
+      if (ev.type === "status") { if (!status.isConnected) content.prepend(status); status.lastElementChild.textContent = ev.text; }
       else if (ev.type === "token") { if (status.isConnected) status.remove(); raw += ev.text; if (!frame) frame = requestAnimationFrame(paint); }
       else if (ev.type === "reset") { raw = ""; body.innerHTML = ""; }
       else if (ev.type === "sources") sources = ev.items;
-      else if (ev.type === "done") { model = shortModel(ev.metrics?.model); ms = ev.metrics?.totalMs ?? 0; }
+      else if (ev.type === "verification") report = ev.report;
+      else if (ev.type === "title") serverTitle = ev.title;
+      else if (ev.type === "done") { model = shortModel(ev.metrics?.model); ms = ev.metrics?.totalMs ?? 0; repaired = Boolean(ev.metrics?.repaired); }
       else if (ev.type === "error") throw new Error(ev.message);
     }
     cancelAnimationFrame(frame); paint(); status.remove(); setDot(true);
+    markFigures(body, report);
     if (sources.length) content.append(sourcesBar(sources));
+    const v = verifyBar(report, repaired); if (v) content.append(v);
     content.append(metaRow(() => raw, [fmtTime(new Date().toISOString()), model, ms ? `${(ms / 1000).toFixed(1)}s` : ""]));
-    setHeader($("title").textContent, model);
+    setHeader(serverTitle || $("title").textContent, model);
     await Promise.all([refreshSessions(), refreshMemories()]);
   } catch (err) {
     cancelAnimationFrame(frame); status.remove();

@@ -41,6 +41,8 @@ interface Row {
   answer: string;
   queries: string[];
   model: string;
+  intent: string;
+  repaired: boolean;
 }
 
 async function runCase(c: Case): Promise<Row> {
@@ -84,7 +86,7 @@ async function runCase(c: Case): Promise<Row> {
   }
 
   store.close();
-  return { id: c.id, failures, searches: m.searches.length, steps: m.steps, ttftMs: m.ttftMs, totalMs: m.totalMs, verdict, answer, queries: m.searches.map((x) => `${x.query}${x.since ? ` (since ${x.since})` : ""} [${(x.ms / 1000).toFixed(1)}s${x.cached ? ", cached" : ""}${x.error ? `, ERROR ${x.error.slice(0, 60)}` : ""}]`), model: m.model };
+  return { id: c.id, failures, searches: m.searches.length, steps: m.steps, ttftMs: m.ttftMs, totalMs: m.totalMs, verdict, answer, queries: m.searches.map((x) => `${x.query}${x.since ? ` (since ${x.since})` : ""} [${(x.ms / 1000).toFixed(1)}s${x.cached ? ", cached" : ""}${x.error ? `, ERROR ${x.error.slice(0, 60)}` : ""}]`), model: m.model, intent: m.intent, repaired: m.repaired };
 }
 
 async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
@@ -113,9 +115,9 @@ const mean = (k: "honesty" | "leadsWithAnswer" | "usefulness") => avg(scored.map
 const dateScores = scored.map((r) => r.verdict!.dateResolution).filter((x): x is number => x != null);
 
 const table = [
-  "| case | result | searches | steps | first token | total | date | honesty | lead | useful |",
-  "|---|---|---|---|---|---|---|---|---|---|",
-  ...rows.map((r) => `| ${r.id} | ${r.failures.length ? "FAIL" : "pass"} | ${r.searches} | ${r.steps} | ${sec(r.ttftMs)} | ${sec(r.totalMs)} | ${r.verdict?.dateResolution ?? "-"} | ${r.verdict?.honesty ?? "-"} | ${r.verdict?.leadsWithAnswer ?? "-"} | ${r.verdict?.usefulness ?? "-"} |`),
+  "| case | result | intent | searches | steps | first token | total | repaired | date | honesty | lead | useful |",
+  "|---|---|---|---|---|---|---|---|---|---|---|---|",
+  ...rows.map((r) => `| ${r.id} | ${r.failures.length ? "FAIL" : "pass"} | ${r.intent} | ${r.searches} | ${r.steps} | ${sec(r.ttftMs)} | ${sec(r.totalMs)} | ${r.repaired ? "yes" : "-"} | ${r.verdict?.dateResolution ?? "-"} | ${r.verdict?.honesty ?? "-"} | ${r.verdict?.leadsWithAnswer ?? "-"} | ${r.verdict?.usefulness ?? "-"} |`),
 ].join("\n");
 
 const passed = rows.filter((r) => !r.failures.length).length;

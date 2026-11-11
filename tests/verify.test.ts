@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractClaims } from "../src/agent/claims.js";
 import { extractFigures, isDerived } from "../src/agent/figures.js";
-import { datesIn, describeProblems, verifyAnswer, type EvidenceSource } from "../src/agent/verify.js";
+import { correctCitations, datesIn, describeProblems, verifyAnswer, type EvidenceSource } from "../src/agent/verify.js";
 
 const NOW = new Date("2026-11-10T13:15:00Z");
 const ev = (id: number, text: string, extra: Partial<EvidenceSource> = {}): EvidenceSource => ({ id, url: `https://s${id}.com`, title: `Source ${id}`, text, ...extra });
@@ -65,6 +65,13 @@ describe("verifyAnswer: figures", () => {
     const asCurrent = verify("Neon Launch costs $19 per month.", [ev(1, "typical spend $15 per month")], { memoryText: memory });
     expect(status(asCurrent)).toEqual(["$19:unsupported"]); // stale memory presented as fact
   });
+  it("a remembered figure about one thing does not excuse the same number about another", () => {
+    const memory = "Neon Launch is about $19/mo [1]. Supabase Pro is $25/mo.";
+    const wrong = verify("HubSpot | Changed | $19 → $20 per seat [1]", [ev(1, "HubSpot Starter $20 per seat")], { memoryText: memory });
+    expect(status(wrong)).toContain("$19:unsupported"); // the arrow frames it as old, but nothing remembered says HubSpot was $19
+    const right = verify("Neon Launch: $19 → $15 [1]", [ev(1, "Neon typical spend $15 per month")], { memoryText: memory });
+    expect(status(right)).toEqual(["$19:memory", "$15:supported"]);
+  });
   it("on a recall turn, memory alone is enough", () => {
     const r = verify("You asked about Postgres and I quoted $19 for Neon.", [], { memoryText: "Neon Launch from about $19/mo", recall: true });
     expect(r.ok).toBe(true);
@@ -114,5 +121,38 @@ describe("verifyAnswer: citations, dates, coverage", () => {
 describe("datesIn", () => {
   it("parses common formats and infers the year as the most recent past one", () => {
     expect([...datesIn("on 4 Nov, Nov 5th, 2026-11-06 and 25 December", NOW)].sort()).toEqual(["2025-12-25", "2026-11-04", "2026-11-05", "2026-11-06"]);
+  });
+});
+
+
+describe("correctCitations: repairing attribution without a model", () => {
+  const fix = (answer: string, evidence: EvidenceSource[]) => correctCitations(answer, verify(answer, evidence));
+  const sources = [ev(1, "Neon Launch from $19"), ev(2, "Supabase Pro is $25"), ev(3, "HubSpot Starter $20")];
+
+  it("swaps a wrong number for the source that states the figure", () => {
+    const r = fix("Neon is $19 per month [3].", sources);
+    expect(r).toEqual({ answer: "Neon is $19 per month [1].", fixed: 1 });
+    expect(verify(r.answer, sources).ok).toBe(true);
+  });
+  it("fixes several sentences at once", () => {
+    const r = fix("Neon is $19 [2]. Supabase is $25 [1].", sources);
+    expect(r.answer).toBe("Neon is $19 [1]. Supabase is $25 [2].");
+  });
+  it("in a sentence with several figures it adds the right source and keeps the existing citation", () => {
+    const r = fix("Neon is $19 and HubSpot is $20 [3].", sources);
+    expect(r.answer).toBe("Neon is $19 and HubSpot is $20 [3][1].");
+    expect(verify(r.answer, sources).figures.every((f) => f.status === "supported")).toBe(true);
+  });
+  it("leaves an answer alone when nothing is misattributed", () => {
+    expect(fix("Neon is $19 [1].", sources)).toEqual({ answer: "Neon is $19 [1].", fixed: 0 });
+  });
+  it("does not invent support for a figure no source states", () => {
+    const r = fix("Neon is $99 [1].", sources);
+    expect(r.fixed).toBe(0);
+    expect(verify(r.answer, sources).ok).toBe(false);
+  });
+  it("works inside a table row", () => {
+    const r = fix("| Tool | Price |\n|---|---|\n| Neon | $19 [2] |", sources);
+    expect(r.answer).toContain("| Neon | $19 [1] |");
   });
 });

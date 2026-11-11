@@ -1,5 +1,6 @@
 import { extractFigures, figureKeys, isDerived, keyOf, type Figure } from "./figures.js";
 import { uncoveredEntities, type PriorClaim } from "./claims.js";
+import { keywordsOf } from "./retrieval.js";
 
 /**
  * Checks an answer against the evidence it was written from, with no model involved. Every price, percentage and
@@ -55,7 +56,7 @@ export interface VerifyInput {
 
 const CITATION = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
 /** Wording that frames a figure as something said earlier, not as the current state. */
-const AS_OLD = /\b(you|i) (asked|said|told|answered|mentioned|gave|quoted|noted)\b|\b(earlier|previously|before|originally|back then|at the time|was|were|then)\b|→|->|\b(mon|tues|wednes|thurs|fri|satur|sun)day\b|\b\d{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
+const AS_OLD = /\b(you|i|we) (asked|said|told|answered|mentioned|gave|quoted|noted|highlighted|recommended|suggested|listed|stated|shortlisted)\b|\b(earlier|previously|before|originally|back then|at the time|at that time|a while back|last time|was|were|then)\b|→|->|\b(mon|tues|wednes|thurs|fri|satur|sun)day\b|\b\d{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
 const DATE_VERB = /\b(published|dated|announced|released|launched|shipped|updated|posted|on)\b/i;
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
@@ -91,7 +92,18 @@ export function verifyAnswer(input: VerifyInput): VerificationReport {
   const { answer, evidence, memoryText, searched, now } = input;
   const evidenceKeys = new Map(evidence.map((e) => [e.id, figureKeys(`${e.title} ${e.text}`)]));
   const allEvidence = new Set([...evidenceKeys.values()].flatMap((s) => [...s]));
-  const memoryKeys = figureKeys(memoryText);
+  // A remembered figure only vouches for a claim about the SAME thing: "$19" said about Neon must not excuse "$19" said about HubSpot.
+  const memoryByKey = new Map<string, Set<string>[]>();
+  for (const mu of units(memoryText)) {
+    const words = new Set(keywordsOf(mu.text));
+    for (const k of figureKeys(mu.text)) memoryByKey.set(k, [...(memoryByKey.get(k) ?? []), words]);
+  }
+  const memorySupports = (key: string, unitText: string) => {
+    const candidates = memoryByKey.get(key);
+    if (!candidates) return false;
+    const mine = keywordsOf(unitText);
+    return mine.length === 0 || candidates.some((words) => mine.some((w) => words.has(w))); // no content words ("I said $19 earlier"): nothing to contradict
+  };
   const known: Figure[] = [...evidence.flatMap((e) => extractFigures(`${e.title} ${e.text}`)), ...extractFigures(memoryText)];
   const evidenceIds = new Set(evidence.map((e) => e.id));
 
@@ -108,7 +120,7 @@ export function verifyAnswer(input: VerifyInput): VerificationReport {
       let status: FigureStatus;
       if (cited.length && foundIn.some((id) => cited.includes(id))) status = "supported";
       else if (foundIn.length) status = cited.length ? "misattributed" : "supported";
-      else if (memoryKeys.has(k) && (input.recall || AS_OLD.test(u.text))) status = "memory";
+      else if (memorySupports(k, u.text) && (input.recall || AS_OLD.test(u.text))) status = "memory";
       else if (isDerived(f, known)) status = "derived";
       else status = "unsupported";
       figures.push({ figure: f.raw, status, cited, foundIn });
@@ -146,11 +158,41 @@ export function verifyAnswer(input: VerifyInput): VerificationReport {
   };
 }
 
+/**
+ * Fixes misattributed citations without a model: the checker knows which source actually states each figure, so a
+ * wrong [8] becomes [3]. In a sentence with one figure the wrong numbers are replaced; with several, the right
+ * source is added, so the other figures' citations stay. Cheaper and faster than asking a model to redo the answer.
+ */
+export function correctCitations(answer: string, report: VerificationReport): { answer: string; fixed: number } {
+  const wrong = report.figures.filter((f) => f.status === "misattributed" && f.foundIn.length > 0 && f.foundIn.length <= 3);
+  if (!wrong.length) return { answer, fixed: 0 };
+  let out = answer;
+  let fixed = 0;
+  for (const u of units(answer)) {
+    const here = wrong.filter((f) => u.text.includes(f.figure));
+    if (!here.length || !CITATION.test(u.text)) continue;
+    CITATION.lastIndex = 0;
+    const figuresInUnit = new Set(extractFigures(u.text).map(keyOf)).size;
+    const right = [...new Set(here.flatMap((f) => f.foundIn))].sort((a, b) => a - b);
+    let text: string;
+    if (figuresInUnit === 1) {
+      let first = true;
+      text = u.text.replace(CITATION, () => (first ? ((first = false), right.map((n) => `[${n}]`).join("")) : "")); // one clean group
+    } else {
+      const have = new Set(idsIn(u.text));
+      const add = right.filter((n) => !have.has(n)).map((n) => `[${n}]`).join("");
+      text = u.text.replace(/(\s*)([.;,:!?]*\s*)$/, `${add}$1$2`);
+    }
+    if (text !== u.text) { out = out.replace(u.text, text); fixed += here.length; }
+  }
+  return { answer: out, fixed };
+}
+
 /** One line per problem, written for the model that has to fix them. */
 export function describeProblems(r: VerificationReport): string[] {
   const out: string[] = [];
   for (const f of r.figures) {
-    if (f.status === "unsupported") out.push(`The figure "${f.figure}" appears in no source and was not given earlier. Remove it, or replace it with a figure the evidence supports, or say you could not verify it.`);
+    if (f.status === "unsupported") out.push(`The figure "${f.figure}" appears in no source. If it came from an earlier answer of yours (see the earlier conversation), say so explicitly ("on <date> I said ${f.figure}") instead of presenting it as current. Otherwise remove it, or replace it with a figure the evidence supports, or say you could not verify it.`);
     if (f.status === "misattributed") out.push(`The figure "${f.figure}" is cited to ${f.cited.map((n) => `[${n}]`).join("")} but only appears in ${f.foundIn.map((n) => `[${n}]`).join("")}. Fix the citation.`);
   }
   for (const n of r.dangling) out.push(`Citation [${n}] does not exist. Use only the numbers in the evidence.`);

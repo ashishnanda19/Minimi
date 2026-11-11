@@ -41,3 +41,38 @@ describe("classifyIntent: what code decides about searching", () => {
     expect(ask("What is the difference between a LEFT JOIN and an INNER JOIN?").forbidSearch).toBe(false);
   });
 });
+
+describe("recall phrasings seen in practice", () => {
+  it("recognises 'remind me', 'which one did you recommend' and 'what did you say'", () => {
+    for (const m of [
+      "Remind me, which Postgres host did you recommend a while back?",
+      "which CRM did you suggest for us?",
+      "what was your recommendation for hosting?",
+      "what did you say about Neon earlier?",
+      "How much did you quote for Supabase?",
+    ]) expect(classifyIntent(m, { hasDateRefs: false, hasPriorClaims: false }), m).toMatchObject({ kind: "recall", forbidSearch: true });
+  });
+  it("but a freshness cue turns it back into a verification", () => {
+    expect(classifyIntent("which host did you recommend, and is it still the cheapest?", { hasDateRefs: false, hasPriorClaims: true })).toMatchObject({ forbidSearch: false });
+  });
+  it("'remind me to ...' is not recall", () => {
+    expect(classifyIntent("remind me to check pricing", { hasDateRefs: false, hasPriorClaims: false }).kind).not.toBe("recall");
+  });
+});
+
+describe("clarify instead of searching when there is nothing to refer back to", () => {
+  const ask2 = (m: string, hasContext: boolean, hasPriorClaims = false) => classifyIntent(m, { hasDateRefs: true, hasPriorClaims, hasContext });
+  it("'them' with no memory at all: forbid search and ask", () => {
+    expect(ask2("Has any of them changed pricing since Monday?", false)).toMatchObject({ forbidSearch: true, requireSearch: false, clarify: true });
+    expect(ask2("Is that still correct?", false)).toMatchObject({ clarify: true });
+  });
+  it("with any memory to refer to, it does not clarify", () => {
+    expect(ask2("Has any of them changed pricing since Monday?", true).clarify).toBeUndefined();
+    expect(ask2("Has any of them changed pricing since Monday?", true, true).requireSearch).toBe(true);
+  });
+  it("naming something makes the question answerable without memory", () => {
+    expect(ask2("Has HubSpot changed pricing since Monday?", false).clarify).toBeUndefined();
+    expect(ask2("Has the Neon Launch plan changed since Monday?", false).clarify).toBeUndefined();
+    expect(ask2("Has anything shipped in Postgres 18 since Tuesday?", false).clarify).toBeUndefined();
+  });
+});

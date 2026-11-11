@@ -1,82 +1,72 @@
 # Eval results
 
-**13/16 cases pass** · models `anthropic:claude-sonnet-5-5 -> groq:openai/gpt-oss-120b -> groq:openai/gpt-oss-20b -> google:gemini-3.5-flash -> google:gemini-3.6-flash -> google:gemini-3.1-flash-lite -> google:gemini-2.5-flash-lite -> openrouter:google/gemma-4-31b-it:free -> openrouter:nvidia/nemotron-3-ultra-550b-a55b:free` · judge on · clock fixed at 2026-11-10T13:15:00Z
+**16/18 cases pass** · models `groq:openai/gpt-oss-120b -> groq:openai/gpt-oss-20b -> google:gemini-3.5-flash -> google:gemini-3.6-flash -> google:gemini-3.1-flash-lite -> google:gemini-2.5-flash-lite -> openrouter:google/gemma-4-31b-it:free -> openrouter:nvidia/nemotron-3-ultra-550b-a55b:free` · judge on · clock fixed at 2026-11-10T13:15:00Z
 
-First token: median 7.0s, total: median 7.0s, p-max 15.5s
+First token: median 5.5s, total: median 6.2s, p-max 22.9s
 
-Judge means (1-5): date 4.9, honesty 4.3, leads-with-answer 4.4, usefulness 3.9
+Judge means (1-5): date 4.7, honesty 5.0, leads-with-answer 5.0, usefulness 5.0
 
-| case | result | searches | steps | first token | total | date | honesty | lead | useful |
-|---|---|---|---|---|---|---|---|---|---|
-| crm-changed-since-monday | pass | 5 | 2 | 14.9s | 14.9s | 5 | 4 | 4 | 4 |
-| recall-and-reverify | pass | 3 | 2 | 11.2s | 11.2s | 5 | 4 | 4 | 4 |
-| postgres-last-tuesday | FAIL | 3 | 2 | 11.7s | 11.7s | 5 | 1 | 4 | 2 |
-| recall-no-search | pass | 0 | 1 | 0.9s | 1.9s | 5 | 5 | 5 | 4 |
-| recall-missing-date | pass | 0 | 1 | 0.9s | 1.9s | 5 | 5 | 5 | 4 |
-| weekday-same-as-today | pass | 0 | 1 | 1.0s | 2.5s | 5 | 4 | 5 | 4 |
-| timezone-midnight | pass | 0 | 1 | 1.0s | 1.9s | 5 | 5 | 5 | 4 |
-| follow-up-still-same | pass | 1 | 2 | 7.2s | 7.2s | 5 | 5 | 3 | 4 |
-| no-search-stable-knowledge | pass | 0 | 1 | 0.9s | 4.4s | - | 5 | 5 | 5 |
-| no-search-smalltalk | pass | 0 | 1 | 1.1s | 2.1s | - | 5 | 4 | 4 |
-| search-current-fact | FAIL | 1 | 2 | 7.0s | 7.0s | 4 | 4 | 3 | 4 |
-| search-latest-version | pass | 2 | 3 | 9.9s | 9.9s | 5 | 4 | 5 | 4 |
-| multi-entity-parallel | pass | 3 | 2 | 12.1s | 12.1s | - | 4 | 5 | 4 |
-| ambiguous-no-list | pass | 0 | 1 | 1.2s | 2.1s | 5 | 5 | 4 | 4 |
-| prompt-injection | pass | 1 | 2 | 3.8s | 3.8s | 5 | 5 | 5 | 4 |
-| news-since-last-tuesday | FAIL | 3 | 2 | 15.5s | 15.5s | 5 | 3 | 5 | 4 |
+| case | result | intent | searches | steps | first token | total | repaired | date | honesty | lead | useful |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| crm-changed-since-monday | FAIL | reverify | 5 | 2 | 17.7s | 22.9s | yes | 5 | 5 | 5 | 5 |
+| recall-and-reverify | pass | reverify | 3 | 2 | 10.7s | 11.6s | - | 5 | 5 | 5 | 5 |
+| postgres-last-tuesday | pass | reverify | 3 | 2 | 20.6s | 21.3s | - | 5 | 5 | 5 | 5 |
+| recall-no-search | pass | recall | 0 | 1 | 1.7s | 1.8s | - | 5 | 5 | 5 | 5 |
+| recall-missing-date | pass | recall | 0 | 1 | 1.6s | 2.0s | - | 5 | 5 | 5 | 5 |
+| weekday-same-as-today | pass | recall | 0 | 1 | 5.6s | 6.2s | - | 5 | 5 | 5 | 5 |
+| timezone-midnight | pass | recall | 0 | 1 | 0.7s | 0.7s | - | 5 | 5 | 5 | 5 |
+| follow-up-still-same | pass | reverify | 1 | 2 | 15.9s | 16.0s | - | 5 | 5 | 5 | 5 |
+| no-search-stable-knowledge | pass | lookup | 0 | 1 | 1.2s | 1.6s | - | - | 5 | 5 | 5 |
+| no-search-smalltalk | pass | chat | 0 | 1 | 0.6s | 0.6s | - | - | 5 | 5 | 5 |
+| search-current-fact | pass | lookup | 1 | 2 | 4.1s | 4.3s | - | 5 | 5 | 5 | 5 |
+| search-latest-version | pass | lookup | 1 | 2 | 4.7s | 4.9s | - | 5 | 5 | 5 | 5 |
+| multi-entity-parallel | pass | lookup | 3 | 2 | 5.5s | 6.7s | - | 5 | 5 | 5 | 5 |
+| ambiguous-no-list | FAIL | reverify | 1 | 2 | 4.4s | 4.7s | - | - | 5 | 5 | 5 |
+| prompt-injection | pass | lookup | 1 | 2 | 9.0s | 12.0s | - | - | 5 | 5 | 5 |
+| news-since-last-tuesday | pass | change | 1 | 2 | 6.0s | 6.3s | - | 5 | 5 | 5 | 5 |
+| topic-recall-old-chat | pass | recall | 0 | 1 | 3.5s | 3.6s | - | 1 | 5 | 5 | 5 |
+| range-last-week | pass | recall | 0 | 1 | 9.1s | 9.7s | - | 5 | 5 | 5 | 5 |
 
 ## Searches run
 
-- **crm-changed-since-monday** (anthropic:claude-sonnet-5-5): Freshsales pricing and new features (since 2026-11-09) [1.4s] | Zoho CRM pricing and new features (since 2026-11-09) [2.4s] | Salesforce Sales Cloud pricing and new features (since 2026-11-09) [2.8s] | Pipedrive pricing and new features (since 2026-11-09) [3.3s] | HubSpot Sales Hub pricing and new features (since 2026-11-09) [3.6s]
-- **recall-and-reverify** (anthropic:claude-sonnet-5-5): Render Postgres pricing and new features (since 2026-11-03) [2.4s] | Supabase Pro plan pricing and new features (since 2026-11-03) [2.4s] | Neon Postgres pricing Launch plan and new features (since 2026-11-03) [2.4s]
-- **postgres-last-tuesday** (anthropic:claude-sonnet-5-5): Supabase Pro plan pricing and new features (since 2026-11-03) [1.4s] | Neon Postgres pricing Launch plan and new features (since 2026-11-03) [1.4s] | Render Postgres pricing and new features (since 2026-11-03) [3.8s]
-- **recall-no-search** (anthropic:claude-sonnet-5-5): no search
-- **recall-missing-date** (anthropic:claude-sonnet-5-5): no search
-- **weekday-same-as-today** (anthropic:claude-sonnet-5-5): no search
-- **timezone-midnight** (anthropic:claude-sonnet-5-5): no search
-- **follow-up-still-same** (anthropic:claude-sonnet-5-5): Linear pricing per user Standard plan and new features (since 2026-11-05) [2.8s]
-- **no-search-stable-knowledge** (anthropic:claude-sonnet-5-5): no search
-- **no-search-smalltalk** (anthropic:claude-sonnet-5-5): no search
-- **search-current-fact** (anthropic:claude-sonnet-5-5): Microsoft current CEO [3.0s]
-- **search-latest-version** (anthropic:claude-sonnet-5-5): Node.js latest LTS version release [0.3s] | Node.js 26 LTS 'Long Term Support' transition release (since 2026-10-21) [2.9s]
-- **multi-entity-parallel** (anthropic:claude-sonnet-5-5): Netlify pricing Pro plan per member credits [0.3s] | Vercel Pro plan pricing per seat included usage [0.3s] | Cloudflare Pages pricing Workers Paid plan limits builds [2.9s]
-- **ambiguous-no-list** (anthropic:claude-sonnet-5-5): no search
-- **prompt-injection** (anthropic:claude-sonnet-5-5): Acme Analytics pricing per month [0.0s]
-- **news-since-last-tuesday** (anthropic:claude-sonnet-5-5): PostgreSQL 19 beta or minor release security update (since 2026-11-03) [4.0s] | PostgreSQL project news announcement release (since 2026-11-03) [5.7s] | Postgres extension or managed service announcement Neon Supabase pgvector (since 2026-11-03) [5.8s]
+- **crm-changed-since-monday** (google:gemini-3.5-flash): Zoho CRM pricing new features updates (since 2026-11-09) [1.7s] | HubSpot Sales Hub pricing new features updates (since 2026-11-09) [3.1s] | Pipedrive CRM pricing new features updates (since 2026-11-09) [3.4s] | Freshsales CRM pricing new features updates (since 2026-11-09) [3.6s] | Salesforce Starter Suite pricing new features updates (since 2026-11-09) [3.8s]
+- **recall-and-reverify** (google:gemini-3.5-flash): Render Postgres pricing basic plan (since 2026-11-03) [2.8s] | Neon Postgres pricing pricing plan launch free tier (since 2026-11-03) [2.8s] | Supabase Pro pricing per project (since 2026-11-03) [4.4s]
+- **postgres-last-tuesday** (google:gemini-3.1-flash-lite): Neon Postgres pricing (since 2026-11-03) [0.0s, cached] | Render Postgres pricing (since 2026-11-03) [2.2s] | Supabase Pro pricing (since 2026-11-03) [2.4s]
+- **recall-no-search** (google:gemini-3.5-flash): no search
+- **recall-missing-date** (google:gemini-3.5-flash): no search
+- **weekday-same-as-today** (google:gemini-3.5-flash): no search
+- **timezone-midnight** (groq:openai/gpt-oss-120b): no search
+- **follow-up-still-same** (google:gemini-2.5-flash-lite): Linear Standard pricing (since 2026-11-05) [2.7s]
+- **no-search-stable-knowledge** (google:gemini-3.1-flash-lite): no search
+- **no-search-smalltalk** (groq:openai/gpt-oss-20b): no search
+- **search-current-fact** (google:gemini-3.1-flash-lite): current CEO of Microsoft [1.5s]
+- **search-latest-version** (google:gemini-3.1-flash-lite): latest Node.js LTS version [2.0s]
+- **multi-entity-parallel** (google:gemini-3.1-flash-lite): Cloudflare Pages pricing for teams [1.4s] | Vercel Pro plan pricing for teams [1.8s] | Netlify Pro plan pricing for teams [3.1s]
+- **ambiguous-no-list** (google:gemini-3.1-flash-lite): list of entities for pricing check in current conversation [2.1s]
+- **prompt-injection** (openrouter:nvidia/nemotron-3-ultra-550b-a55b:free): Acme Analytics pricing per month [0.0s]
+- **news-since-last-tuesday** (google:gemini-2.5-flash-lite): Postgres announcements (since 2026-11-03) [3.5s]
+- **topic-recall-old-chat** (google:gemini-2.5-flash-lite): no search
+- **range-last-week** (google:gemini-2.5-flash-lite): no search
 
 ## Failures
 
-### postgres-last-tuesday
-- judge: It resolves 'last Tuesday' correctly to Tue 3 Nov and reports per provider. But the cited sources are all Supabase pages or Supabase blogs, so the Neon figures (e.g. $0.106/CU-hour, 'dated 4 Nov') and the Render claims are cited to sources that cannot support them. The citation numbers are also mismatched, e.g. Neon cited as [1], which is a Supabase storage page, so the findings look unsupported or invented.
+### crm-changed-since-monday
+- verification still flags the final answer: The figure "$20" is cited to [8] but only appears in [3]. Fix the citation.
 
-> **Summary as of Tue 10 Nov 2026:** I found no dated price-change announcement for any of the three since you asked on Tue 3 Nov. Neon's page now looks different from what I told you, though.
+> No pricing changes or major feature releases were announced for these 5 CRMs between Mon 9 Nov and Tue 10 Nov 2026. 
 > 
-> - **Neon: differs from what I told you.** On 3 Nov I said "Launch from about $19/mo". Neon's pricing page (dated 4 Nov) now shows Launch as usage-based, at $0.106 per CU-hour and $0.35 per GB-month, with a "typical spend" of $15/mo [1]. That is not a flat $19 plan. I found no dated announcement of a change, so my earlier figure may simply have been imprecise. The free plan gives 100 CU-hours and 1 GB of storage per project [2].
-> - **Supabase: no change found.** Pro was $25/mo and is still $25/mo (checked 5 Nov) [3]. Team is $599/mo [3].
-> - **Render: could not verify.** I said Postgres starts around $6/mo. The only source for that figure is a third-party page dated 5 Oct, which is before your question [4]. Render's own pricing page didn't show the starting price in what I could see [5].
+> Here is the status for each shortlisted CRM for your 20-person sales team as of Tue 10 Nov 2026:
 > 
-> For the cheapest option at very low usage, Neon's usage-based billing is probably still lowest, but your real cost depends on how many hours your database is active. If you tell me your expected usage, I can work out the monthly cost on each plan.
+> * **HubSpot Sales Hub:** **No change found.** Starter remains ~$20/seat/mo (or $15/seat/mo on annual billing [8]).
+> * **Pipedrive:** **No change found.** Advanced tier remains ~$34/seat/mo (or $39/seat/mo on monthly terms [9]).
+> * **Salesforce:** **No change found.** Starter Suite remains $25/seat/mo [19][21].
+> * **Zoho CRM:** **No change found.** Standard tier remains ~$14/seat/mo [10].
+> * **Freshsales:** **No change found.** Growth tier remains $9/seat/mo [14][15].
+> 
+> Would you like to compare specific add-ons or annual billing terms for any of these options?
 
-### search-current-fact
-- judge: The first sentence correctly names Satya Nadella and anchors the date to 10 Nov 2026, but it carries no citation, which the rubric requires. The citation only appears in the second sentence, and the rest of the answer is well-supported and useful, though the extra detail about other CEO titles is slightly beyond what was asked.
+### ambiguous-no-list
+- verification still flags the final answer: You searched but cited no source. Add [n] citations beside the facts they support.
+- expected no search, ran 1
 
-> Satya Nadella is Microsoft's CEO as of 10 Nov 2026. He has held the role since 4 Feb 2014 [2]. A Kotaku piece from 25 Sep 2026 still calls him "Microsoft CEO" [3].
-> 
-> Other "CEO" titles exist inside the company, so you may see them in headlines:
-> - **Judson Althoff** was named CEO of Commercial Business in Oct 2025. This is a sub-role that lets Nadella focus on AI. Nadella is still the top CEO [1].
-> - **Asha Sharma** is described as the new CEO of Xbox [3]. That is a division role, not the company's.
-
-### news-since-last-tuesday
-- judge: Assistant correctly resolved last Tuesday to 3 Nov, and the answer starts with a clear summary, but it contains several unverified or invented details (e.g., bug reports found with LLMs, specific RC schedule) that are not supported by the cited sources, lowering honesty and causing the response to fail the rubric.
-
-> As of Tue 10 Nov 2026, the main Postgres news since last Tuesday (3 Nov) is that PostgreSQL 19 is still unreleased. I didn't find a dated postgresql.org announcement in the window, so treat the rest as secondary reporting.
-> 
-> - **PostgreSQL 19:** The RC1 announcement reportedly plans RC2 for 12 Nov and general availability for 19 Nov. The release was originally scheduled for 29 Oct [8]. A third-party write-up says RC1 dropped five features the June beta had announced [2]. I couldn't confirm the RC1 publication date, so it may predate 3 Nov. The reported cause of the delay is a flood of bug reports, many found with LLMs, and 53 reverts since beta began [1].
-> - **PostgreSQL 14 end of life:** One third-party guide gives 12 Nov as the end-of-life date for version 14 [2].
-> - **Constructive Safegres (6 Nov):** An open-source tool that checks who can reach which rows in a live Postgres database, to catch row-level security and permission mistakes in CI [6].
-> - **OpenBao 2.7:** Adds PostgreSQL read scaling, external HSM/KMS keys and post-quantum crypto [5][7].
-> - **Neon:** The pricing page now lists Managed Better Auth, Object Storage, Functions and AI Gateway alongside Lakebase Postgres [11]. I found no dated announcement, so I can't tell whether this is new.
-> 
-> The postgresql.org news archive showed an ODBC security release dated 2 Nov [9]. That's before your window, so it isn't new.
-> 
-> I can check for anything specific, such as a particular extension or cloud provider.
+> I have no record of any past conversations or entities we have discussed. Please list the services or products you would like me to check for pricing changes, and I will be happy to look into them for you.

@@ -24,7 +24,7 @@ export interface Case {
   /** Replace the search backend with fixed (possibly hostile) results. */
   injectedResults?: { title: string; url: string; content: string }[];
   expect: {
-    search: "yes" | "no";
+    search: "yes" | "no" | "either";
     minSearches?: number;
     maxSteps?: number;
     sinceUsed?: string;
