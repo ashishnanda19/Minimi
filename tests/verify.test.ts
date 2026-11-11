@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractClaims } from "../src/agent/claims.js";
 import { extractFigures, isDerived } from "../src/agent/figures.js";
-import { correctCitations, datesIn, describeProblems, verifyAnswer, type EvidenceSource } from "../src/agent/verify.js";
+import { correctCitations, datesIn, describeProblems, subjectsOf, verifyAnswer, type EvidenceSource } from "../src/agent/verify.js";
 
 const NOW = new Date("2026-11-10T13:15:00Z");
 const ev = (id: number, text: string, extra: Partial<EvidenceSource> = {}): EvidenceSource => ({ id, url: `https://s${id}.com`, title: `Source ${id}`, text, ...extra });
@@ -53,7 +53,7 @@ describe("verifyAnswer: figures", () => {
     expect(status(verify("Neon charges $0.106 per CU-hour [1].", [ev(1, "compute at $0.106 per CU-hour")]))).toEqual(["$0.106:supported"]);
   });
   it("accepts arithmetic on quoted figures", () => {
-    const r = verify("For 4 developers Vercel starts at $80 [1].", [ev(1, "Pro is $20 per seat")]);
+    const r = verify("For 4 developers Vercel starts at $80 [1].", [ev(1, "Vercel Pro is $20 per seat")]);
     expect(status(r)).toEqual(["$80:derived"]);
     expect(r.ok).toBe(true);
   });
@@ -82,8 +82,8 @@ describe("verifyAnswer: figures", () => {
   });
   it("checks each table row's figure against its own citation", () => {
     const answer = "| Tool | Price |\n|---|---|\n| HubSpot | $20 [1] |\n| Pipedrive | $14 [2] |";
-    expect(verify(answer, [ev(1, "Starter $20 per seat"), ev(2, "Essential $14")]).ok).toBe(true);
-    expect(verify(answer, [ev(1, "Starter $20 per seat"), ev(2, "Essential $9")]).ok).toBe(false);
+    expect(verify(answer, [ev(1, "HubSpot Starter $20 per seat"), ev(2, "Pipedrive Essential $14")]).ok).toBe(true);
+    expect(verify(answer, [ev(1, "HubSpot Starter $20 per seat"), ev(2, "Pipedrive Essential $9")]).ok).toBe(false);
   });
 });
 
@@ -160,5 +160,138 @@ describe("correctCitations: repairing attribution without a model", () => {
   it("works inside a table row", () => {
     const r = fix("| Tool | Price |\n|---|---|\n| Neon | $19 [2] |", sources);
     expect(r.answer).toContain("| Neon | $19 [1] |");
+  });
+});
+
+describe("citations must be about the thing claimed (from a real answer)", () => {
+  const sources = [
+    ev(1, "Neon pricing: usage based, no monthly minimum", { url: "https://neon.com/pricing", title: "Neon Pricing" }),
+    ev(6, "State of Michigan railroad safety programme and rail grants", { url: "https://www.michigan.gov/mdot/rail", title: "Rail programs" }),
+    ev(7, "Representative Hoyle statement on transport funding", { url: "https://hoyle.house.gov/news", title: "News" }),
+  ];
+  it("flags a claim about Railway that cites pages which never mention Railway", () => {
+    const r = verify("Railway: No pricing changes have been reported since Monday [6][7].", sources);
+    expect(r.weakCitations).toHaveLength(1);
+    expect(r.weakCitations[0]).toMatchObject({ ids: [6, 7], subjects: ["Railway"] });
+    expect(r.ok).toBe(false);
+    expect(describeProblems(r).join(" ")).toMatch(/none of those pages \(michigan\.gov, hoyle\.house\.gov\) mention Railway/);
+    expect(r.weakCitations[0]!.pages).toEqual(["https://www.michigan.gov/mdot/rail", "https://hoyle.house.gov/news"]);
+  });
+  it("accepts a claim whose cited page is about it, and the page need only mention it once", () => {
+    expect(verify("Neon: continues its usage-based model [1].", sources).weakCitations).toEqual([]);
+    expect(verify("Neon: continues its model [6][1].", sources).weakCitations).toEqual([]); // one good source among several is enough
+  });
+  it("matches on the page's address and title, not just its text", () => {
+    const r = verify("Supabase: unchanged [1].", [ev(1, "plans and limits", { url: "https://supabase.com/pricing", title: "Pricing" })]);
+    expect(r.weakCitations).toEqual([]);
+  });
+  it("does not police sentences with nothing to name, or no citation", () => {
+    expect(verify("Prices have not moved since Monday [6].", sources).weakCitations).toEqual([]);
+    expect(verify("Railway had no changes.", sources).weakCitations).toEqual([]);
+  });
+});
+
+describe("subjectsOf", () => {
+  it("finds product names and ignores sentence-starting words, months, weekdays and generic nouns", () => {
+    expect(subjectsOf("Railway: No pricing changes since Monday 9 November [6]")).toEqual(["Railway"]);
+    expect(subjectsOf("Recent news regarding Supabase concerns funding and the acquisition of Turso")).toEqual(["Supabase", "Turso"]);
+    expect(subjectsOf("| HubSpot | Changed | $19 → $20 per seat [1] |")).toEqual(["HubSpot"]);
+    expect(subjectsOf("Total Cost of Ownership is lower for managed hosting")).toEqual([]);
+    expect(subjectsOf("As of today nothing changed")).toEqual([]);
+  });
+  it("recognises CamelCase names even at the start of a sentence", () => {
+    expect(subjectsOf("PlanetScale remains consistent")).toEqual(["PlanetScale"]);
+  });
+});
+
+describe("overlooked changes: 'no change' contradicted by a source inside the window (from a live run)", () => {
+  const recent = (text: string, published = "2026-11-10", extra: Partial<EvidenceSource> = {}) => ev(1, text, { published, url: "https://neon.com/blog", title: "Neon blog", ...extra });
+  const check = (answer: string, evidence: EvidenceSource[], extra = {}) => verify(answer, evidence, { reverify: true, windowStart: "2026-11-09", ...extra });
+
+  it("flags 'no pricing changes' when a source published in the window says the free tier was increased", () => {
+    const r = check("Neon: No pricing changes found [1].", [recent("Neon increased the free tier to 100 projects on Nov 10, effective immediately")]);
+    expect(r.overlooked).toHaveLength(1);
+    expect(r.overlooked[0]).toMatchObject({ subject: "Neon", id: 1, published: "2026-11-10" });
+    expect(r.overlooked[0]!.excerpt).toContain("increased the free tier");
+    expect(r.ok).toBe(false);
+    expect(describeProblems(r).join(" ")).toMatch(/You say nothing changed for Neon, but source \[1\] \(published 2026-11-10\)/);
+  });
+  it("flags 'unchanged' and 'remains' phrasings too", () => {
+    for (const a of ["Neon is unchanged [1].", "Neon's pricing remains the same [1].", "Neon: no change found [1]."]) {
+      expect(check(a, [recent("Neon will no longer offer the old Scale plan")]).overlooked, a).toHaveLength(1);
+    }
+  });
+  it("stays quiet when the source is older than the window", () => {
+    expect(check("Neon: no changes found [1].", [recent("Neon increased the free tier", "2026-11-05")]).overlooked).toEqual([]);
+  });
+  it("stays quiet when the answer itself reports a change", () => {
+    expect(check("Neon: the free tier was increased on 10 Nov [1].", [recent("Neon increased the free tier")]).overlooked).toEqual([]);
+  });
+  it("stays quiet about generic text with no change language, or about another company", () => {
+    expect(check("Neon: no changes found [1].", [recent("Neon offers a free tier and usage-based billing")]).overlooked).toEqual([]);
+    expect(check("Neon: no changes found [1].", [recent("Supabase increased its prices", "2026-11-10", { url: "https://supabase.com", title: "Supabase" })]).overlooked).toEqual([]);
+  });
+  it("only applies to re-verification with a window, never to ordinary answers", () => {
+    const e = [recent("Neon increased the free tier")];
+    expect(verify("Neon: no changes found [1].", e, { reverify: true }).overlooked).toEqual([]);                    // no window
+    expect(verify("Neon: no changes found [1].", e, { windowStart: "2026-11-09" }).overlooked).toEqual([]);         // not a re-verification
+  });
+});
+
+describe("false alarms found in live runs (each stays fixed)", () => {
+  const page = (id: number, text: string, extra: Partial<EvidenceSource> = {}) => ev(id, text, { published: "2026-11-09", ...extra });
+  const check = (answer: string, evidence: EvidenceSource[]) => verify(answer, evidence, { reverify: true, windowStart: "2026-11-09" });
+
+  it("change language about ANOTHER company on the same page does not contradict a claim about this one", () => {
+    const text = "Supabase offers Postgres with auth and storage for growing products. " + "x ".repeat(120) + "Neon announced it would join Databricks.";
+    const r = check("Supabase: no pricing changes found [1].", [page(1, text, { title: "Postgres hosts compared", url: "https://example.com/compare" })]);
+    expect(r.overlooked).toEqual([]);
+  });
+  it("...but change language right beside the subject does", () => {
+    expect(check("Supabase: no pricing changes found [1].", [page(1, "Supabase increased the Pro plan price this week")]).overlooked).toHaveLength(1);
+  });
+  it("a change described with an explicit date before the window is old news, not an overlooked change", () => {
+    const r = check("Neon: no pricing changes found [1].", [page(1, "Neon announced on May 14, 2025 that it would join Databricks")]);
+    expect(r.overlooked).toEqual([]);
+    expect(check("Neon: no pricing changes found [1].", [page(1, "Neon announced on Nov 10, 2026 that it raised prices")]).overlooked).toHaveLength(1);
+  });
+  it("a misattributed figure found in many sources is corrected to the one about the subject", () => {
+    const evidence = [
+      ev(2, "Postgres at scale: PlanetScale from $5 per month"),
+      ev(4, "Railway Hobby plan is $5 per month", { url: "https://railway.com/pricing", title: "Railway Pricing" }),
+      ev(10, "Fly.io Postgres starts at $5 per month"), ev(11, "Render free plan, paid from $5 per month"), ev(15, "Heroku Eco dynos $5 per month"),
+    ];
+    const answer = "Railway: entry pricing remains from $5/month [2].";
+    const fixed = correctCitations(answer, verify(answer, evidence), evidence);
+    expect(fixed.answer).toBe("Railway: entry pricing remains from $5/month [4].");
+    expect(verify(fixed.answer, evidence).figures.map((f) => f.status)).toEqual(["supported"]);
+  });
+  it("...and left alone when several sources match and none is about the subject", () => {
+    const evidence = [ev(1, "Plan A $5 per month"), ev(2, "Plan B $5 per month"), ev(3, "Plan C $5 per month"), ev(4, "Plan D $5 per month"), ev(9, "unrelated")];
+    const answer = "Zeta: costs $5 per month [9].";
+    expect(correctCitations(answer, verify(answer, evidence), evidence)).toEqual({ answer, fixed: 0 });
+  });
+});
+
+describe("no evidence, no reassurance (from a live run where every search failed)", () => {
+  const rv = (answer: string, evidence: EvidenceSource[] = []) => verify(answer, evidence, { reverify: true, searched: true });
+
+  it("flags 'no changes found' when nothing was retrieved", () => {
+    const r = rv("No changes found as of today. The figures I provided earlier remain the latest available information.");
+    expect(r.unverifiedAbsence).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(describeProblems(r).join(" ")).toMatch(/No web evidence was retrieved this turn/);
+  });
+  it("also flags 'remains unchanged' and 'still the same'", () => {
+    for (const a of ["Neon remains unchanged.", "Everything is still the same.", "Supabase: no pricing changes have been reported."]) expect(rv(a).unverifiedAbsence, a).toBe(true);
+  });
+  it("accepts an honest admission that it could not verify", () => {
+    for (const a of ["I could not verify whether pricing has changed: the search was unavailable.", "I couldn't retrieve the pages, so I can't confirm any change.", "Search is unavailable, so I am unable to say whether anything is unchanged."]) {
+      expect(rv(a).unverifiedAbsence, a).toBe(false);
+    }
+  });
+  it("does not apply when evidence was retrieved, or on turns that are not re-verification", () => {
+    expect(rv("Neon: no changes found [1].", [ev(1, "Neon pricing page", { url: "https://neon.com" })]).unverifiedAbsence).toBe(false);
+    expect(verify("No changes found.", [], { reverify: false }).unverifiedAbsence).toBe(false);
   });
 });

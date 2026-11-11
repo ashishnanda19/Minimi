@@ -505,6 +505,9 @@ function problemsOf(r) {
   for (const n of r.dangling || []) out.push(`Citation <b>[${n}]</b> matches no source`);
   for (const d of r.unsupportedDates || []) out.push(`The date <b>${escapeHtml(d)}</b> is not shown by the source cited`);
   for (const e of r.uncovered || []) out.push(`<b>${escapeHtml(e)}</b> from the earlier answer was not addressed`);
+  if (r.unverifiedAbsence) out.push("Nothing was retrieved from the web, so “no change” is not verified");
+  for (const o of (r.overlooked || []).slice(0, 3)) out.push(`<b>${escapeHtml(o.subject)}</b>: a source published ${escapeHtml(o.published)} [${o.id}] may describe a change`);
+  for (const w of r.weakCitations || []) out.push(`<b>${escapeHtml(w.subjects[0])}</b>: the sources cited ${w.ids.map((n) => `[${n}]`).join("")} (${(w.pages || []).map((u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } }).join(", ")}) never mention it`);
   if (r.uncited) out.push("The answer cites no source for its facts");
   return out;
 }

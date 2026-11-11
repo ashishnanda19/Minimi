@@ -5,10 +5,11 @@ import { DEFAULT_USER, type SourceRef, type Store } from "../store/db.js";
 import { claimsBlock, gatherClaims, type PriorClaim } from "./claims.js";
 import { classifyIntent, type IntentKind } from "./intent.js";
 import { buildLedger, resolveLookup, splitMemory, toModelMessages } from "./memory.js";
+import { civilOf, isoDate, resolveDateRefs } from "./temporal.js";
 import { retryAfterMs, statusOf, type ModelPool, type PoolEntry } from "./models.js";
 import { buildSystem } from "./prompt.js";
 import { formatRecalled, retrieveRelevant } from "./retrieval.js";
-import { normalizeCitations, SourceRegistry, type SearchLogEntry } from "./sources.js";
+import { normalizeCitations, SourceRegistry, stripInternalMarkers, type SearchLogEntry } from "./sources.js";
 import { correctCitations, describeProblems, verifyAnswer, type EvidenceSource, type VerificationReport } from "./verify.js";
 
 /** Round 1 searches, later rounds only if something unexpected turned up, the last round must be the answer. */
@@ -129,6 +130,8 @@ interface Attempt {
   usage: Usage;
   searches: SearchLogEntry[];
   registry: SourceRegistry;
+  /** What was streamed to the user, before markers were stripped and citations normalised. */
+  streamed: string;
 }
 
 /** One full agent run on one model. Throws on any model/provider failure so the caller can fail over. */
@@ -225,13 +228,14 @@ async function* attempt(
   // A weak model that returns nothing is a provider failure like any other: try the next one.
   if (!answer.trim()) throw new Error("model returned an empty answer");
   if (BROKEN_TOOL_MARKUP.test(answer)) throw new Error("model printed tool-call markup instead of calling the tool");
-  answer = normalizeCitations(answer);
+  const streamed = answer;
+  answer = stripInternalMarkers(normalizeCitations(answer));
   // Searched, got results, then stated facts with no citation: a weaker model ignoring the rules.
   // Hand the turn to the next model; the last candidate's answer is accepted as is.
   if (!isLast && registry.log.some((l) => l.results > 0) && !/\[\d+/.test(answer) && /\d/.test(answer)) {
     throw new Error("model searched but cited no sources");
   }
-  return { answer, sources: registry.cited(answer), steps, ttftMs, firstStatusMs, searchWallMs, usage, searches: registry.log, registry };
+  return { answer, sources: registry.cited(answer), steps, ttftMs, firstStatusMs, searchWallMs, usage, searches: registry.log, registry, streamed };
 }
 
 const REPAIR_SYSTEM =
@@ -277,7 +281,7 @@ async function* repairAnswer(
     } else if (part.type === "error") throw part.error;
     else if (part.type === "abort") return undefined;
   }
-  return normalizeCitations(text);
+  return stripInternalMarkers(normalizeCitations(text));
 }
 
 export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerator<AgentEvent> {
@@ -395,15 +399,25 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
     }
     if (!outcome) return;
 
+    // If cleaning changed the text the user already watched stream in, show them the clean version.
+    if (outcome.answer !== outcome.streamed.trim() && outcome.answer !== outcome.streamed) {
+      yield { type: "reset" };
+      yield { type: "token", text: outcome.answer };
+    }
+
     // ---- verify: check every figure and citation against what the answer was written from; repair once if needed ----
     const evidence = outcome.registry.evidence();
     const memoryText = [ledger, live.map((m) => m.content).join("\n"), retrievedText, claimsText, lookup.text, message].join("\n");
+    // The window the user asked about: from the earliest day they named, else from when the earlier claims were made.
+    const named = resolveDateRefs(message, now, tz).map((r) => isoDate(r.date)).sort();
+    const windowStart = named[0] ?? (priorClaims.length ? isoDate(civilOf(new Date(Math.min(...priorClaims.map((c) => c.when.getTime()))), tz)) : undefined);
     const check = (answer: string) =>
       verifyAnswer({
         answer, evidence, memoryText, priorClaims,
         searched: outcome!.searches.some((s) => s.results > 0),
         recall: intent.kind === "recall" || intent.kind === "chat",
         reverify: intent.kind === "reverify" || intent.kind === "change",
+        windowStart,
         now,
       });
     let finalAnswer = outcome.answer;
@@ -412,7 +426,7 @@ export async function* runAgent(deps: AgentDeps, input: RunInput): AsyncGenerato
     let citationsFixed = 0;
 
     // Cheapest fix first: a wrong citation number is corrected in code, with no model call.
-    const corrected = correctCitations(finalAnswer, report);
+    const corrected = correctCitations(finalAnswer, report, evidence);
     if (corrected.fixed > 0) {
       const after = check(corrected.answer);
       if (describeProblems(after).length < describeProblems(report).length) {

@@ -15,6 +15,8 @@ export interface SearchRequest {
   since?: string;
   topic: "general" | "news";
   maxResults: number;
+  /** Restrict results to these domains (used to find a vendor's own pages). */
+  includeDomains?: string[];
   signal?: AbortSignal;
 }
 
@@ -58,9 +60,10 @@ export class TavilyProvider implements SearchProvider {
       include_published_date: true, // off by default for topic "general"; "confirmed change" needs a dated source
       // filter_by_published_date makes start_date a hard filter instead of a ranking hint
       ...(req.since ? { start_date: req.since, filter_by_published_date: true } : {}),
+      ...(req.includeDomains?.length ? { include_domains: req.includeDomains } : {}),
     };
     // If the API ever rejects the optional flags (400/422), retry once with the bare documented minimum.
-    const minimal = { query: req.query, topic: req.topic, max_results: req.maxResults, ...(req.since ? { start_date: req.since } : {}) };
+    const minimal = { query: req.query, topic: req.topic, max_results: req.maxResults, ...(req.since ? { start_date: req.since } : {}), ...(req.includeDomains?.length ? { include_domains: req.includeDomains } : {}) };
     let body = JSON.stringify(full);
 
     let lastError: unknown;
@@ -161,7 +164,18 @@ export async function webSearch(
     }
   });
 
-  const hits = rankHits(args.query, [...merged.values()]);
+  let hits = rankHits(args.query, [...merged.values()]);
+
+  // No page from the vendor itself? One more query restricted to its likely domains. Search engines happily answer
+  // "Railway pricing" with railroad pages and review sites; the official page is what the answer needs.
+  const names = entityTokens(args.query).slice(0, 2);
+  if (names.length && VENDOR_INTENT.test(args.query) && !hits.some((h) => h.source === "official")) {
+    try {
+      const extra = await deps.provider.search({ ...base, maxResults: 2, includeDomains: names.flatMap((n) => OFFICIAL_TLDS.map((t) => `${n}.${t}`)) });
+      for (const r of extra) if (!merged.has(normalizeUrl(r.url))) merged.set(normalizeUrl(r.url), { ...r, inWindow: false });
+      hits = rankHits(args.query, [...merged.values()]);
+    } catch { /* the main results still stand */ }
+  }
   // Cache only complete answers; a partial result would poison later identical queries.
   if (failures.length === 0) deps.cache.set(key, hits);
   return {
@@ -236,9 +250,13 @@ export const MAX_SEARCHES_PER_TURN = 8;
 const AGGREGATORS = /(^|\.)(g2|trustradius|capterra|softwareadvice|getapp|saasworthy|peerspot|sourceforge|trustpilot|slashdot|alternativeto|sitejabber|comparecamp|toolhalla|aitoolsatlas|softwarecosmos|renewalrecord|saasgenius|crozdesk|financesonline|goodfirms|g2crowd|appsumo|producthunt|medium|quora|reddit|linkedin|pinterest|facebook|youtube)\./i;
 const GENERIC = new Set("pricing price prices plan plans cost costs new feature features announcement announcements release releases news latest current update updates changelog changes since after from the and for with how much does what is are per month year users user seat seats team small large business free paid tier".split(" "));
 
+/** Only queries about what a vendor itself publishes (prices, plans, releases, docs) are worth a hunt for its own site. */
+const VENDOR_INTENT = /\b(pricing|prices?|plans?|costs?|changelog|releases?|features?|announcements?|docs|documentation)\b/i;
+const OFFICIAL_TLDS = ["com", "io", "dev", "app", "tech", "ai", "co"];
+
 /** The product or company names in a query: the words a vendor's own domain would contain. */
 export function entityTokens(query: string): string[] {
-  return [...new Set(query.toLowerCase().match(/[a-z0-9]{4,}/g) ?? [])].filter((w) => !GENERIC.has(w));
+  return [...new Set(query.toLowerCase().match(/[a-z0-9]{4,}/g) ?? [])].filter((w) => !GENERIC.has(w) && !/^\d+$/.test(w));
 }
 
 export function classifySource(url: string, tokens: string[]): SourceClass {
@@ -295,7 +313,10 @@ export function createSearchTool(deps: SearchToolDeps) {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         deps.registry.log.push({ ...entry, ms: performance.now() - started, error: message });
-        return `SEARCH_FAILED for "${args.query}": ${message}. Tell the user this lookup failed rather than guessing.`;
+        if (/\b(402|432|433)\b|usage limit|exceeds your plan/i.test(message)) {
+          return `SEARCH_UNAVAILABLE: the search provider's usage limit has been reached, so no web results can be fetched right now. Tell the user plainly that search is unavailable. Do NOT say or imply that anything is unchanged, current or verified.`;
+        }
+        return `SEARCH_FAILED for "${args.query}": ${message}. Tell the user this lookup failed rather than guessing. Do NOT say or imply that anything is unchanged, current or verified.`;
       }
     },
   });

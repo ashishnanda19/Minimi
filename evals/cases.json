@@ -596,5 +596,73 @@
       ]
     },
     "rubric": "Resolves 'last week' to Mon 2 Nov - Sun 8 Nov and lists exactly the three questions asked then (centering a div on 2 Nov, Bun on 5 Nov, Rust lifetimes on 8 Nov). Does NOT include the question from Mon 9 Nov, which is this week."
+  },
+  {
+    "id": "five-vendors-no-leaks",
+    "question": "Has any of them changed pricing since Monday?",
+    "seed": [
+      {
+        "id": "mon",
+        "messages": [
+          {
+            "role": "user",
+            "at": "2026-11-09T09:00:00Z",
+            "content": "What's the cheapest managed Postgres hosting for a SaaS? Compare Neon, Supabase, Railway, PlanetScale and DigitalOcean."
+          },
+          {
+            "role": "assistant",
+            "at": "2026-11-09T09:01:00Z",
+            "content": "Neon has a free tier and a Launch plan with typical spend around $15/mo [1]; Supabase Pro is $25/mo [2]; Railway starts at $5/month [3]; PlanetScale starts at $5/month [4]; DigitalOcean Managed Postgres starts at $15/month [5].\n**Total Cost of Ownership**: managed services (starting at ~$15-$25/month) are often more cost-effective than DIY hosting.\n**DIY Hosting**: managed services provide better value for production than DIY.",
+            "sources": [
+              {
+                "id": 1,
+                "title": "Neon pricing",
+                "url": "https://neon.com/pricing"
+              },
+              {
+                "id": 2,
+                "title": "Supabase pricing",
+                "url": "https://supabase.com/pricing"
+              },
+              {
+                "id": 3,
+                "title": "Railway pricing",
+                "url": "https://railway.com/pricing"
+              },
+              {
+                "id": 4,
+                "title": "PlanetScale pricing",
+                "url": "https://planetscale.com/pricing"
+              },
+              {
+                "id": 5,
+                "title": "DigitalOcean pricing",
+                "url": "https://www.digitalocean.com/pricing/managed-databases"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "current": "mon",
+    "expect": {
+      "search": "yes",
+      "minSearches": 4,
+      "maxSteps": 3,
+      "mustMatch": [
+        "neon",
+        "supabase",
+        "railway",
+        "planetscale",
+        "digitalocean"
+      ],
+      "mustNotMatch": [
+        "\\[said",
+        "\\(src:",
+        "total cost of ownership",
+        "diy hosting"
+      ]
+    },
+    "rubric": "Re-checks all five providers named in Monday's answer, one line each with old figure beside current, sourced from each provider's own pricing page where possible, saying 'no change found' honestly where nothing was found. It must not re-verify the generic headings (Total Cost of Ownership, DIY Hosting), must not cite pages unrelated to the provider (for example government or news pages for a pricing claim), and must not contain internal notes such as [said ...]."
   }
 ]

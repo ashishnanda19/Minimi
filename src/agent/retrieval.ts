@@ -9,7 +9,7 @@ import type { Store, StoredMessage } from "../store/db.js";
  * "that CRM shortlist") rather than by when it happened.
  */
 
-const STOP = new Set(`a an the and or but if then than so of to in on at by for from with without about into over under again further
+export const STOP = new Set(`a an the and or but if then than so of to in on at by for from with without about into over under again further
   is are was were be been being am do does did done doing have has had having i me my mine we our you your yours he she it its they them their this that these those
   what which who whom whose when where why how can could should would will shall may might must not no nor only own same too very just also
   please tell told ask asked asking say said remind reminded show give gave want need like know think mean yes okay ok thanks thank

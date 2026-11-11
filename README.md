@@ -20,7 +20,7 @@ npm run dev              # http://localhost:3000
 | `OPENROUTER_API_KEY` | [openrouter.ai/keys](https://openrouter.ai/keys) | free models via `openrouter/free` |
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) | paid; best quality, tried first if set |
 
-Set at least one model key (`MODEL` picks the Anthropic model; `MEMORY_SCOPE=session` limits memory to one chat, the default `global` lets a new chat recall old ones). The agent tries providers in order (`LLM_ORDER`); when one is rate-limited, down or
+**Tavily credits go fast.** A "what changed since" search costs two credits per entity (three when no official page is found), and one `npm run eval` costs on the order of 50-100. The free 1,000 a month is enough to use the app, not to run evals all day. When it runs out Tavily answers `432`, and the agent says plainly that search is unavailable and refuses to claim anything is unchanged. Set at least one model key (`MODEL` picks the Anthropic model; `MEMORY_SCOPE=session` limits memory to one chat, the default `global` lets a new chat recall old ones). The agent tries providers in order (`LLM_ORDER`); when one is rate-limited, down or
 rejects a request it switches to the next mid-turn, and skips the failed one for a cooldown (about 60 s for rate
 limits). The default order is Anthropic, Groq, Gemini, OpenRouter (fastest first), restricted to the keys you set. Free-tier
 limits change and are per model (Gemini 2.5 Flash is 20 requests/day), so each provider takes a comma list of models and the agent waits up to 20 s for a rate limit to reset before giving up. Answer quality follows the model: expect the paid and Gemini
@@ -29,7 +29,7 @@ tiers to follow the date and re-verification rules most reliably.
 | Command | What it does |
 |---|---|
 | `npm run dev` | server with reload |
-| `npm test` | 262 unit and integration tests, no keys or network needed |
+| `npm test` | 302 unit and integration tests, no keys or network needed |
 | `npm run typecheck` / `npm run build` | strict TypeScript |
 | `npm run bench` | the speed pass: Tavily depth, snippet length, real parallel speed-up; writes `evals/speed.md` (needs keys) |
 | `npm run eval` | 16 end-to-end cases against the real models and search, writes `evals/results.md` (needs keys) |

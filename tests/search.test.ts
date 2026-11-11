@@ -219,7 +219,7 @@ describe("source quality ranking", () => {
 
   it("extracts the product names from a query, not the generic words", () => {
     expect(entityTokens("HubSpot Sales Hub pricing and new features")).toEqual(["hubspot", "sales"]);
-    expect(entityTokens("Neon Postgres pricing since 2026-11-03")).toEqual(["neon", "postgres", "2026"]);
+    expect(entityTokens("Neon Postgres pricing since 2026-11-03")).toEqual(["neon", "postgres"]); // dates are not names
   });
   it("recognises official pages, review aggregators and others", () => {
     const t = entityTokens("HubSpot pricing");
@@ -251,5 +251,70 @@ describe("source quality ranking", () => {
     const tool = createSearchTool({ provider, cache: new TtlCache<Hit[]>(5, 1000), registry });
     await (tool.execute as any)({ query: "hubspot pricing" }, { abortSignal: undefined, toolCallId: "t", messages: [] });
     expect(registry.evidence()[0]!.text).toContain("$20 per seat");
+  });
+});
+
+import { stripInternalMarkers } from "../src/agent/sources.js";
+describe("stripInternalMarkers", () => {
+  it("removes the notes our own prompt uses, which a weak model sometimes copies into the answer", () => {
+    expect(stripInternalMarkers("Pricing remains unchanged [said Wed 11 Nov 2026]. Neon is $19 (src: neon.com).")).toBe("Pricing remains unchanged. Neon is $19.");
+    expect(stripInternalMarkers("Neon (as you said on Tue 3 Nov 2026) was $19.")).toBe("Neon was $19.");
+  });
+  it("leaves ordinary text alone", () => {
+    expect(stripInternalMarkers("Neon is $19 [1]. See (docs) and [link].")).toBe("Neon is $19 [1]. See (docs) and [link].");
+  });
+});
+
+describe("finding the vendor's own page", () => {
+  const deps = () => ({ cache: new TtlCache<Hit[]>(10, 1000) });
+  const web = (url: string) => ({ title: url, url, content: "about" });
+
+  it("when no result is from the vendor, runs one more query restricted to its likely domains and ranks it first", async () => {
+    const calls: SearchRequest[] = [];
+    const provider = fakeProvider(async (req) => {
+      calls.push(req);
+      return req.includeDomains ? [web("https://railway.com/pricing")] : [web("https://www.michigan.gov/rail"), web("https://www.g2.com/products/railway")];
+    });
+    const { hits } = await webSearch({ provider, ...deps() }, { query: "Railway pricing", topic: "general", maxResults: 4 });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.includeDomains).toEqual(expect.arrayContaining(["railway.com", "railway.io", "railway.app"]));
+    expect(hits[0]).toMatchObject({ url: "https://railway.com/pricing", source: "official" });
+    expect(hits.at(-1)!.source).toBe("aggregator");
+  });
+  it("does not hunt for a vendor page on queries that are not about what a vendor publishes", async () => {
+    const calls: SearchRequest[] = [];
+    const provider = fakeProvider(async (req) => { calls.push(req); return [web("https://example.com/x")]; });
+    for (const q of ["Node.js LTS version", "Who is the current CEO of Microsoft", "weather in Mumbai"]) await webSearch({ provider, ...deps() }, { query: q, topic: "general", maxResults: 4 });
+    expect(calls).toHaveLength(3); // one call each, no fallback
+  });
+  it("does not spend the extra query when an official page is already there", async () => {
+    const calls: SearchRequest[] = [];
+    const provider = fakeProvider(async (req) => { calls.push(req); return [web("https://neon.tech/pricing"), web("https://g2.com/neon")]; });
+    await webSearch({ provider, ...deps() }, { query: "Neon pricing", topic: "general", maxResults: 4 });
+    expect(calls).toHaveLength(1);
+  });
+  it("a failing extra query never loses the main results", async () => {
+    const provider = fakeProvider(async (req) => { if (req.includeDomains) throw new Error("boom"); return [web("https://example.com/x")]; });
+    const { hits } = await webSearch({ provider, ...deps() }, { query: "Railway pricing", topic: "general", maxResults: 4 });
+    expect(hits.map((h) => h.url)).toEqual(["https://example.com/x"]);
+  });
+  it("sends the domain restriction to Tavily", async () => {
+    const f = vi.fn().mockResolvedValue(json(tavilyBody([])));
+    await new TavilyProvider("k", f).search({ query: "q", topic: "general", maxResults: 2, includeDomains: ["railway.com"] });
+    expect(JSON.parse(f.mock.calls[0]![1].body).include_domains).toEqual(["railway.com"]);
+  });
+});
+
+describe("when the search provider's quota is gone", () => {
+  const run = (tool: ReturnType<typeof createSearchTool>) => (tool.execute as any)({ query: "neon pricing" }, { abortSignal: undefined, toolCallId: "t", messages: [] });
+  it("tells the model plainly, and forbids implying that anything is verified", async () => {
+    const provider = fakeProvider(async () => { throw new Error('Tavily 432: {"detail":{"error":"This request exceeds your plan\'s set usage limit."}}'); });
+    const out = await run(createSearchTool({ provider, cache: new TtlCache<Hit[]>(5, 1000), registry: new SourceRegistry() }));
+    expect(out).toMatch(/^SEARCH_UNAVAILABLE/);
+    expect(out).toContain("Do NOT say or imply that anything is unchanged");
+  });
+  it("an ordinary failure carries the same prohibition", async () => {
+    const provider = fakeProvider(async () => { throw new Error("socket hang up"); });
+    expect(await run(createSearchTool({ provider, cache: new TtlCache<Hit[]>(5, 1000), registry: new SourceRegistry() }))).toContain("Do NOT say or imply");
   });
 });

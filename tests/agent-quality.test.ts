@@ -59,7 +59,7 @@ describe("search policy is decided in code", () => {
     const evs = await events;
     expect(model.doStreamCalls[0]!.toolChoice).toEqual({ type: "required" });
     expect(systemOf(model)).toContain("Claims from your earlier answers");
-    expect(systemOf(model)).toMatch(/\[said Tue 3 Nov 2026\] Neon Launch: "Neon Launch is about \$19\/mo\./);
+    expect(systemOf(model)).toContain('- Neon Launch, as you said on Tue 3 Nov 2026: "Neon Launch is about $19/mo.');
     expect(systemOf(model)).toContain("you must search before answering");
     expect(done(evs)).toMatchObject({ intent: "reverify", priorClaims: 2, repaired: false });
   });
@@ -192,6 +192,90 @@ describe("verification and repair", () => {
     expect(report(evs)).toMatchObject({ ok: true });
     expect(done(evs)).toMatchObject({ citationsFixed: 2, repaired: false });
     expect(store.sessionMessages("now")[1]!.content).toBe(textOf(evs));
+  });
+
+  it("regression from a real answer: no leaked notes, no junk claims, no irrelevant citations, and the vendor's own page is found", async () => {
+    const earlier = [
+      { role: "user" as const, content: "Compare managed Postgres hosting for a SaaS", timestamp: new Date("2026-11-09T09:00:00Z") },
+      { role: "assistant" as const, timestamp: new Date("2026-11-09T09:01:00Z"), content: [
+        "**Total Cost of Ownership**: managed services (starting at ~$15-$25/month) are often more cost-effective than DIY hosting.",
+        "**DIY Hosting**: managed services give better value for production than DIY at about $15/month.",
+        "Railway starts at $5/month.",
+      ].join("\n") },
+    ];
+    const calls: { query: string; includeDomains?: string[] }[] = [];
+    const provider = { async search(req: { query: string; includeDomains?: string[] }) {
+      calls.push({ query: req.query, includeDomains: req.includeDomains });
+      return req.includeDomains
+        ? [{ title: "Railway Pricing", url: "https://railway.com/pricing", content: "Railway Hobby plan is $5 per month" }]
+        : [{ title: "Rail programs", url: "https://www.michigan.gov/mdot/rail", content: "State railroad safety grants" }, { title: "News", url: "https://hoyle.house.gov/news", content: "Transport funding statement" }];
+    } };
+    const { model, events } = run([
+      { tools: [{ input: { query: "Railway pricing" } }] },
+      { text: "Railway: No pricing changes have been reported since Monday [2][3] [said Wed 11 Nov 2026]." },
+      { text: "Railway: its pricing page lists the Hobby plan at $5 per month, the same as before [1]." },
+    ], "Has any of them changed pricing since Monday?", { sessionId: "chat", history: earlier, provider });
+    const evs = await events;
+
+    // the checklist has the products, not the headings
+    const checklist = systemOf(model).split("# Claims from your earlier answers")[1]!;
+    expect(checklist).toContain("Railway, as you said on Mon 9 Nov 2026");
+    expect(checklist).not.toMatch(/Total Cost of Ownership|DIY Hosting/);
+    // the vendor's own site was hunted for, because the first results had none
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.includeDomains).toContain("railway.com");
+    // the answer that cited government pages was caught, and the citation was swapped for the official page in code: no repair call
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(textOf(evs)).toBe("Railway: No pricing changes have been reported since Monday [1].");
+    expect(textOf(evs)).not.toContain("[said");
+    expect(report(evs)).toMatchObject({ ok: true, weakCitations: [] });
+    expect(done(evs)).toMatchObject({ repaired: false, citationsFixed: 1 });
+    expect(evs.flatMap((e) => (e.type === "sources" ? e.items : [])).map((x) => x.url)).toEqual(["https://railway.com/pricing"]);
+  });
+
+  it("notes from our own prompt that a model copies into its answer are removed before the user keeps them", async () => {
+    const { events } = run([{ tools: [{ input: { query: "neon pricing" } }] }, { text: "Neon Launch has a typical spend of $19 per month [1] [said Tue 3 Nov 2026] (src: neon.tech)." }], "How much is Neon?");
+    const evs = await events;
+    expect(textOf(evs)).toBe("Neon Launch has a typical spend of $19 per month [1].");
+    expect(store.sessionMessages("now")[1]!.content).toBe("Neon Launch has a typical spend of $19 per month [1].");
+    // what streamed was replaced by the clean version, so the screen matches what is saved
+    const resets = evs.filter((e) => e.type === "reset").length;
+    expect(resets).toBeGreaterThanOrEqual(1);
+  });
+
+  it("a 'no change' answer is repaired when a source dated inside the window describes a change (from a live run)", async () => {
+    const provider = fakeProvider({
+      "neon pricing": [{ title: "Neon news", url: "https://neon.com/blog", content: "Neon increased the free tier limits on Nov 10; the Launch plan stays at $19 per month", publishedDate: "2026-11-10" }],
+      "supabase pricing": [{ title: "Supabase", url: "https://supabase.com/pricing", content: "Supabase Pro is $25 per month", publishedDate: "2026-11-01" }],
+    });
+    const { model, events } = run([
+      { tools: [{ input: { query: "neon pricing" } }, { input: { query: "supabase pricing" } }] },
+      { text: "Neon: $19 -> $19, unchanged [1]. Supabase: $25 -> $25, unchanged [2]." },
+      { text: "Neon: the Launch plan is still $19, but on 10 Nov Neon increased the free tier limits [1]. Supabase: $25 -> $25, unchanged [2]." },
+    ], "Is that still correct?", { sessionId: "chat", history: HISTORY, provider });
+    const evs = await events;
+    expect(JSON.stringify(model.doStreamCalls[2]!.prompt)).toContain("You say nothing changed for Neon, but source [1] (published 2026-11-10)");
+    expect(JSON.stringify(model.doStreamCalls[2]!.prompt)).not.toContain("nothing changed for Supabase"); // its source is older than the window
+    expect(textOf(evs)).toContain("increased the free tier limits");
+    expect(report(evs)).toMatchObject({ ok: true, overlooked: [] });
+    expect(done(evs).repaired).toBe(true);
+  });
+
+  it("when every search fails, a 'no changes found' answer is refused and rewritten as an honest 'could not verify'", async () => {
+    const dead = { async search() { throw new Error('Tavily 432: {"detail":{"error":"This request exceeds your plan\'s set usage limit."}}'); } };
+    const { model, events } = run([
+      { tools: [{ input: { query: "neon pricing" } }, { input: { query: "supabase pricing" } }] },
+      { text: "No changes found as of today. The figures I provided on 3 Nov remain the latest available." },
+      { text: "I could not verify whether pricing has changed: web search is unavailable right now. On 3 Nov I said Neon Launch was about $19/mo and Supabase Pro $25/mo; I can't confirm those still hold." },
+    ], "Is that still correct?", { sessionId: "chat", history: HISTORY, provider: dead });
+    const evs = await events;
+    expect(JSON.stringify(model.doStreamCalls[1]!.prompt)).toContain("SEARCH_UNAVAILABLE");
+    expect(JSON.stringify(model.doStreamCalls[2]!.prompt)).toContain("No web evidence was retrieved this turn");
+    expect(textOf(evs)).toContain("could not verify");
+    expect(textOf(evs)).not.toContain("No changes found");
+    expect(report(evs)).toMatchObject({ ok: true, unverifiedAbsence: false });
+    expect(done(evs).repaired).toBe(true);
+    expect(textOf(evs)).toContain("$19"); // earlier figures are kept, attributed to when they were said
   });
 
   it("a failing repair call never loses the answer", async () => {

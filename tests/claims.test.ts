@@ -44,11 +44,31 @@ describe("claims bookkeeping", () => {
   });
   it("renders a dated checklist for the prompt", () => {
     const block = claimsBlock(extractClaims("Neon Launch is about $19/mo [1].", src, WHEN), "UTC");
-    expect(block).toBe('[said Tue 3 Nov 2026] Neon Launch: "Neon Launch is about $19/mo." (src: neon.com)');
+    expect(block).toBe('- Neon Launch, as you said on Tue 3 Nov 2026: "Neon Launch is about $19/mo." (src: neon.com)');
   });
   it("finds entities the new answer silently skipped", () => {
     const claims = extractClaims("Neon is $19/mo. Supabase is $25/mo. Render is $6/mo.", [], WHEN);
     expect(uncoveredEntities(claims, "Neon: $19 -> $15. Render: unchanged.")).toEqual(["Supabase"]);
     expect(uncoveredEntities(claims, "NEON, SUPABASE and RENDER all unchanged.")).toEqual([]);
+  });
+});
+
+describe("generic headings are not claims about named things (from a real answer)", () => {
+  const answer = [
+    "**Total Cost of Ownership**: managed services (starting at ~$15-$25/month) are often more cost-effective than DIY hosting.",
+    "**DIY Hosting**: the assessment that managed services provide better value for production remains the view.",
+    "- Services: Neon/Supabase offering free plans vs. Railway/PlanetScale starting at $5/month.",
+    "SaaS Hosting: production-ready managed hosting generally starts around $15/month.",
+    "Neon Launch is about $19/mo [1].",
+  ].join("\n");
+  it("drops the generic headings and keeps claims about named products", () => {
+    const entities = extractClaims(answer, [{ id: 1, title: "Neon", url: "https://neon.com" }], WHEN).map((c) => c.entity);
+    expect(entities).toEqual(["Railway/PlanetScale", "Neon Launch"]); // "Railway/PlanetScale starting at $5/month" is a real claim
+    for (const heading of ["Total Cost of Ownership", "DIY Hosting", "Services", "SaaS Hosting"]) expect(entities).not.toContain(heading);
+  });
+  it("so a re-verification is never asked to 'address' a heading", () => {
+    expect(uncoveredEntities(extractClaims(answer, [], WHEN), "Neon Launch: $19 unchanged. Railway and PlanetScale: $5 unchanged.")).toEqual([]);
+    expect(uncoveredEntities(extractClaims(answer, [], WHEN), "Neon Launch: $19 unchanged.")).toEqual(["Railway", "PlanetScale"]); // "A/B" is two names
+    expect(uncoveredEntities(extractClaims(answer, [], WHEN), "Neon Launch $19, Railway $5.")).toEqual(["PlanetScale"]);
   });
 });

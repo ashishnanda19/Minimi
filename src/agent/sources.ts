@@ -13,6 +13,10 @@ export interface SearchLogEntry {
 /** Some models (gpt-oss) cite as 【1†L1-L3】 whatever the prompt says. Fold every such form into [1]. */
 export const normalizeCitations = (text: string): string => text.replace(/【\s*(\d+)[^】]*】/g, "[$1]");
 
+/** Notes from our own prompt ("[said Wed 11 Nov]", "(src: neon.tech)") are for the model only; a weak model sometimes copies them into the answer. */
+export const stripInternalMarkers = (text: string): string =>
+  text.replace(/[ \t]*\[said [^\]\n]{0,40}\]/gi, "").replace(/[ \t]*\((?:as you said|said) [^)\n]{0,40}\)/gi, "").replace(/[ \t]*\(src: [^)\n]{0,80}\)/gi, "");
+
 export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw);

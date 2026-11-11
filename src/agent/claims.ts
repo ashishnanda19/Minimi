@@ -20,6 +20,9 @@ export interface PriorClaim {
 
 const OPENERS = new Set(["for", "the", "a", "an", "in", "on", "as", "if", "it", "this", "that", "here", "there", "today", "short", "so", "and", "but", "also", "note", "yes", "no", "overall", "currently", "based", "according", "my", "i", "you", "we"]);
 const CITATION = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+/** Words that make a bullet heading ("Total Cost of Ownership", "DIY Hosting") rather than a product or company. */
+const GENERIC = new Set("total cost costs ownership diy hosting host services service pricing price prices plan plans managed production saas industry overview summary assessment tier tiers free paid monthly annual yearly current view value general basic typical average starting range spend spending budget options option comparison recommendation recommendations note notes key takeaways bottom line tldr answer result results of the and for or vs versus with per".split(" "));
+const isGenericEntity = (entity: string) => entity.toLowerCase().split(/[^a-z0-9.+#]+/).filter(Boolean).every((w) => GENERIC.has(w));
 
 function entityOf(unit: string): string {
   // "For a small SaaS: Neon has ..." leads in with a label, while "Zoho CRM: Standard is ..." names the entity. Only the former starts with a filler word.
@@ -59,7 +62,9 @@ export function extractClaims(answer: string, sources: SourceRef[], when: Date):
     const text = raw.replace(CITATION, "").replace(/\*\*|__|`/g, "").replace(/^[\s\-*•\d.)]+/, "").replace(/\s+/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
     const figures = [...new Set(extractFigures(text).map((f) => f.raw))];
     if (!figures.length || text.length < 8) continue;
-    claims.push({ entity: entityOf(text), text: text.slice(0, 220), figures, domains: [...new Set(domains)], when });
+    const entity = entityOf(text);
+    if (isGenericEntity(entity)) continue; // an opinion under a heading is not a claim about a named thing
+    claims.push({ entity, text: text.slice(0, 220), figures, domains: [...new Set(domains)], when });
   }
   return claims;
 }
@@ -80,22 +85,24 @@ export function gatherClaims(messages: StoredMessage[]): PriorClaim[] {
 
 export function claimsBlock(claims: PriorClaim[], tz: string): string {
   return claims
-    .map((c) => `[said ${formatDay(civilOf(c.when, tz))}] ${c.entity}: "${c.text}"${c.domains.length ? ` (src: ${c.domains.join(", ")})` : ""}`)
+    .map((c) => `- ${c.entity}, as you said on ${formatDay(civilOf(c.when, tz))}: "${c.text}"${c.domains.length ? ` (src: ${c.domains.join(", ")})` : ""}`)
     .join("\n");
 }
 
-const key = (entity: string) => entity.toLowerCase().split(/\s+/)[0]!.replace(/[^a-z0-9]/g, "");
+const key = (name: string) => name.toLowerCase().split(/\s+/)[0]!.replace(/[^a-z0-9]/g, "");
 
-/** Entities from earlier claims that the new answer never mentions: those were silently skipped. */
+/** Entities from earlier claims that the new answer never mentions: those were silently skipped. "A/B" is two names. */
 export function uncoveredEntities(claims: PriorClaim[], answer: string): string[] {
   const text = answer.toLowerCase();
   const seen = new Set<string>();
   const missing: string[] = [];
   for (const c of claims) {
-    const k = key(c.entity);
-    if (k.length < 3 || seen.has(k)) continue;
-    seen.add(k);
-    if (!text.includes(k)) missing.push(c.entity);
+    for (const name of c.entity.split("/").map((n) => n.trim()).filter(Boolean)) {
+      const k = key(name);
+      if (k.length < 3 || seen.has(k)) continue;
+      seen.add(k);
+      if (!text.includes(k)) missing.push(name);
+    }
   }
   return missing;
 }
