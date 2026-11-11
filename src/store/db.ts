@@ -138,6 +138,23 @@ export class Store {
     }));
   }
 
+  /** What the agent remembers, as the user sees it: their most recent distinct questions across all chats. */
+  recentQuestions(limit = 8): { sessionId: string; text: string; createdAt: Date }[] {
+    const rows = this.db
+      .prepare(`SELECT session_id, content, created_at FROM messages WHERE role = 'user' ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(limit * 4) as { session_id: string; content: string; created_at: string }[];
+    const seen = new Set<string>();
+    const out: { sessionId: string; text: string; createdAt: Date }[] = [];
+    for (const r of rows) {
+      const text = r.content.replace(/\s+/g, " ").trim();
+      if (seen.has(text.toLowerCase())) continue; // the same question asked twice is one memory
+      seen.add(text.toLowerCase());
+      out.push({ sessionId: r.session_id, text: text.slice(0, 140), createdAt: new Date(r.created_at) });
+      if (out.length === limit) break;
+    }
+    return out;
+  }
+
   /** Removes a conversation and, because memory is global, its place in what the agent remembers. */
   deleteSession(id: string): boolean {
     return this.db.transaction(() => {

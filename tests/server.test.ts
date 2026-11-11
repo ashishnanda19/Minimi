@@ -147,3 +147,22 @@ describe("conversation list (sidebar)", () => {
     expect((await app.request("/api/sessions/bad%20id!", { method: "DELETE" })).status).toBe(400);
   });
 });
+
+describe("memory panel", () => {
+  it("lists the most recent distinct questions across chats, newest first, each pointing at its chat", async () => {
+    const { app } = make([{ text: "a" }, { text: "b" }, { text: "c" }, { text: "d" }]);
+    const ask = (sessionId: string, message: string, now: string) => post(app, { sessionId, message, now }, { accept: "application/json" });
+    await ask("one", "Cheapest Postgres host?", "2026-11-03T09:00:00Z");
+    await ask("two", "Shortlist 5 CRM tools", "2026-11-09T09:00:00Z");
+    await ask("three", "cheapest postgres host?", "2026-11-10T09:00:00Z"); // same question, different case: one memory
+    await ask("three", "What changed in Node 26?", "2026-11-10T10:00:00Z");
+    const { memories } = await (await app.request("/api/memories")).json();
+    expect(memories.map((m: any) => m.text)).toEqual(["What changed in Node 26?", "cheapest postgres host?", "Shortlist 5 CRM tools"]);
+    expect(memories[1].sessionId).toBe("three"); // the newest ask of the repeated question
+    expect(memories[0].createdAt).toMatch(/^2026-11-10T10/);
+  });
+  it("is empty before any conversation", async () => {
+    const { app } = make([{ text: "x" }]);
+    expect((await (await app.request("/api/memories")).json()).memories).toEqual([]);
+  });
+});

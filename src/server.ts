@@ -59,6 +59,10 @@ export function createApp(deps: AgentDeps & { defaultTz: string }) {
     c.json({ sessions: deps.store.listSessions().map((s) => ({ id: s.id, title: s.title, updatedAt: s.updatedAt.toISOString() })) }),
   );
 
+  app.get("/api/memories", (c) =>
+    c.json({ memories: deps.store.recentQuestions().map((m) => ({ sessionId: m.sessionId, text: m.text, createdAt: m.createdAt.toISOString() })) }),
+  );
+
   app.delete("/api/sessions/:id", (c) => {
     const id = c.req.param("id");
     if (!/^[\w-]{1,100}$/.test(id)) return c.json({ error: "invalid session id" }, 400);

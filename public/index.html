@@ -5,387 +5,483 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>minimi</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231c1c1c'/%3E%3Cpath d='M7 14V6l6 4h6l6-4v8a9 9 0 0 1-18 0z' fill='%23fff'/%3E%3Ccircle cx='12.5' cy='16' r='1.4' fill='%231c1c1c'/%3E%3Ccircle cx='19.5' cy='16' r='1.4' fill='%231c1c1c'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231c1c1c'/%3E%3Cpath d='M7 14V6l6 4h6l6-4v8a9 9 0 0 1-18 0z' fill='%23fff'/%3E%3Ccircle cx='12.5' cy='16' r='1.5' fill='%231c1c1c'/%3E%3Ccircle cx='19.5' cy='16' r='1.5' fill='%231c1c1c'/%3E%3C/svg%3E">
 <style>
-  /* Palette taken from projectminimi.com: near-black #1c1c1c / #262626, warm neutral #e6e4df, blue #0099ff, orange #ff8133. */
+  /*
+   * Look and feel follow the minimi desktop app: near-black page, big rounded cards (filled on the left, outlined on the
+   * right), a bold rounded wordmark with a green status dot, muted gold for secondary status text.
+   * Structure follows ChatGPT: conversation list on the left, chat window with a pill composer on the right.
+   */
   :root {
-    --bg: #ffffff; --side: #f7f7f7; --surface: #f2f2f2; --hover: #ececec; --line: #e6e4df;
-    --text: #1c1c1c; --muted: #767676; --faint: #a3a3a3;
-    --accent: #0099ff; --accent-soft: rgba(0, 153, 255, .12); --warm: #ff8133;
-    --bubble: #f2f2f2; --composer: #ffffff; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 28px rgba(0,0,0,.07);
-    --code: #f4f4f2; --err: #b3261e; --err-bg: #fdecea; --ink: #1c1c1c; --on-ink: #ffffff;
-    --radius: 12px; --side-w: 272px;
+    --page: #f2f2f2; --card: #ffffff; --card-line: #e6e4df; --rail-line: #dcdad4; --hover: #f1f0ed; --active: #ebeae6;
+    --text: #1c1c1c; --muted: #77746d; --faint: #a7a49c;
+    --accent: #0099ff; --accent-soft: rgba(0, 153, 255, .12); --gold: #a57a16; --green: #2fa84a;
+    --bubble: #f0efec; --composer: #f8f7f4; --code: #f4f3f0; --tile: #f0efec;
+    --err: #b3261e; --err-bg: #fdecea; --ink: #1c1c1c; --on-ink: #ffffff;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 10px 30px rgba(0,0,0,.07);
+    --side-w: 308px; --rail-w: 344px; --gap: 18px; --r: 22px;
   }
-  :root[data-theme="dark"] {
-    --bg: #1c1c1c; --side: #151515; --surface: #262626; --hover: #2a2a2a; --line: rgba(255,255,255,.08);
-    --text: #f2f2f2; --muted: #9a9a9a; --faint: #6f6f6f;
-    --accent: #3aaeff; --accent-soft: rgba(58, 174, 255, .16); --warm: #ff8d4d;
-    --bubble: #2b2b2b; --composer: #242424; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
-    --code: #262626; --err: #ff8a80; --err-bg: #3b1d1b; --ink: #f2f2f2; --on-ink: #1c1c1c;
+  :root[data-resolved="dark"] {
+    --page: #1c1c1c; --card: #262626; --card-line: transparent; --rail-line: rgba(255,255,255,.14); --hover: #2e2e2e; --active: #333333;
+    --text: #f2f2f2; --muted: #9b9b9b; --faint: #6e6e6e;
+    --accent: #3aaeff; --accent-soft: rgba(58,174,255,.16); --gold: #b99645; --green: #4ab35f;
+    --bubble: #333333; --composer: #2d2d2d; --code: #1f1f1f; --tile: #323232;
+    --err: #ff8a80; --err-bg: #3b1d1b; --ink: #f2f2f2; --on-ink: #1c1c1c;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.35);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
-  body { background: var(--bg); color: var(--text); font: 15px/1.6 Inter, ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; overflow: hidden; }
+  body { background: var(--page); color: var(--text); font: 15px/1.6 Inter, ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; overflow: hidden; }
   button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; }
-  button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
   svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .shell { display: flex; flex-direction: column; height: 100dvh; }
 
-  .app { display: flex; height: 100dvh; }
-
-  /* ---------- sidebar ---------- */
-  .sidebar { width: var(--side-w); background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; transition: margin-left .22s ease, transform .22s ease; z-index: 30; }
-  .app.collapsed .sidebar { margin-left: calc(var(--side-w) * -1); }
-  .sb-top { display: flex; align-items: center; justify-content: space-between; padding: 14px 12px 6px 16px; }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; letter-spacing: -.02em; }
-  .mark { width: 28px; height: 28px; border-radius: 9px; background: var(--ink); color: var(--on-ink); display: grid; place-items: center; flex: none; }
-  .mark svg { width: 18px; height: 18px; fill: currentColor; stroke: none; }
-  .icon-btn { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: var(--muted); }
+  /* ---------- app bar ---------- */
+  .appbar { display: flex; align-items: center; gap: 8px; padding: 14px 24px 12px; }
+  .brand { display: flex; align-items: center; gap: 11px; font: 700 27px/1 ui-rounded, "SF Pro Rounded", "Nunito", "Poppins", system-ui, sans-serif; letter-spacing: -.035em; }
+  .brand .glyph { width: 34px; height: 30px; color: var(--ink); } .brand .glyph svg { width: 100%; height: 100%; fill: currentColor; stroke: none; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 20%, transparent); transition: background .3s; }
+  .dot.bad { background: #e5484d; box-shadow: 0 0 0 4px rgba(229,72,77,.2); }
+  .spacer { flex: 1; }
+  .icon-btn { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; color: var(--muted); position: relative; flex: none; }
   .icon-btn:hover { background: var(--hover); color: var(--text); }
-  .newchat { display: flex; align-items: center; gap: 10px; margin: 8px 10px 4px; padding: 9px 12px; border-radius: 10px; font-weight: 550; border: 1px solid var(--line); background: var(--bg); }
-  .newchat:hover { background: var(--hover); }
-  .search { position: relative; margin: 6px 10px 6px; }
-  .search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--faint); }
-  .search input { width: 100%; padding: 8px 10px 8px 34px; border-radius: 10px; border: 1px solid transparent; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; }
+  #menu { display: none; }
+
+  /* ---------- layout ---------- */
+  .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--rail-w); gap: var(--gap); padding: 0 24px 24px; }
+  .grid.no-side { grid-template-columns: minmax(0, 1fr) var(--rail-w); } .grid.no-side .sidebar { display: none; }
+  .grid.no-rail { grid-template-columns: var(--side-w) minmax(0, 1fr); } .grid.no-rail .rail { display: none; }
+  .grid.no-side.no-rail { grid-template-columns: minmax(0, 1fr); }
+  .card { background: var(--card); border-radius: var(--r); border: 1px solid var(--card-line); min-height: 0; }
+
+  /* ---------- chats (the "Your Inbox" card) ---------- */
+  .sidebar { display: flex; flex-direction: column; overflow: hidden; }
+  .sb-head { display: flex; align-items: flex-start; gap: 4px; padding: 24px 16px 6px 22px; }
+  .sb-head h2 { margin: 0; font-size: 21px; letter-spacing: -.02em; line-height: 1.2; font-weight: 650; }
+  .sb-head p { margin: 4px 0 0; color: var(--muted); font-size: 14.5px; }
+  .sb-head .grow { flex: 1; min-width: 0; }
+  .search { position: relative; margin: 14px 18px 4px; display: block; }
+  .search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--faint); }
+  .search input { width: 100%; padding: 9px 12px 9px 36px; border-radius: 12px; border: 1px solid transparent; background: var(--tile); color: var(--text); font: inherit; font-size: 14px; }
   .search input::placeholder { color: var(--faint); }
-  .search input:focus { outline: none; border-color: var(--accent); background: var(--bg); }
-  .history { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
-  .group-label { padding: 14px 10px 6px; font-size: 12px; font-weight: 600; color: var(--faint); letter-spacing: .02em; }
-  .item { display: flex; align-items: center; gap: 4px; border-radius: 9px; position: relative; }
-  .item > button.open { flex: 1; min-width: 0; text-align: left; padding: 8px 10px; border-radius: 9px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-  .item:hover { background: var(--hover); }
-  .item.active { background: var(--surface); }
-  .item.active > button.open { font-weight: 550; }
-  .item .del { opacity: 0; width: 28px; height: 28px; margin-right: 4px; border-radius: 7px; display: grid; place-items: center; color: var(--muted); }
+  .search input:focus { outline: none; border-color: var(--accent); }
+  .history { flex: 1; overflow-y: auto; padding: 2px 12px 16px; }
+  .group-label { padding: 16px 10px 6px; font-size: 12px; font-weight: 600; color: var(--faint); letter-spacing: .03em; }
+  .item { display: flex; align-items: center; border-radius: 13px; position: relative; }
+  .item:hover { background: var(--hover); } .item.active { background: var(--active); }
+  .item > .open { flex: 1; min-width: 0; text-align: left; padding: 9px 12px; display: block; }
+  .item .t { display: block; font-size: 14.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .s { display: block; font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+  .item .del { opacity: 0; width: 30px; height: 30px; margin-right: 6px; border-radius: 9px; display: grid; place-items: center; color: var(--muted); }
   .item .del svg { width: 15px; height: 15px; }
-  .item:hover .del, .item .del:focus-visible { opacity: 1; }
-  .item .del:hover { color: var(--err); background: var(--err-bg); }
-  .empty-history { padding: 22px 14px; color: var(--faint); font-size: 13.5px; text-align: center; }
-  .sb-foot { padding: 10px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
-  .avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--warm), #ffb37a); color: #fff; display: grid; place-items: center; font-weight: 650; font-size: 13px; flex: none; }
-  .who { flex: 1; min-width: 0; line-height: 1.25; }
-  .who b { display: block; font-size: 13.5px; font-weight: 600; }
-  .who span { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  .who i { width: 7px; height: 7px; border-radius: 50%; background: #2fb344; display: inline-block; }
+  .item:hover .del, .item .del:focus-visible { opacity: 1; } .item .del:hover { color: var(--err); background: var(--err-bg); }
+  .empty-history { padding: 36px 20px; color: var(--muted); font-size: 14px; text-align: center; }
+  .empty-history b { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
 
-  /* ---------- main ---------- */
-  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
-  .topbar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; min-height: 56px; }
-  .topbar .title { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chip-model { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; white-space: nowrap; display: none; align-items: center; gap: 6px; }
-  .chip-model.show { display: inline-flex; }
-  .chip-model::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warm); }
+  /* ---------- chat window ---------- */
+  .chat { display: flex; flex-direction: column; overflow: hidden; position: relative; }
+  .chat-head { display: flex; align-items: center; gap: 8px; padding: 14px 18px 8px 22px; min-height: 58px; }
+  .chat-head .title { flex: 1; min-width: 0; font-weight: 600; font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip-model { font-size: 12px; color: var(--muted); border: 1px solid var(--rail-line); border-radius: 999px; padding: 3px 12px; white-space: nowrap; display: none; align-items: center; gap: 7px; }
+  .chip-model.show { display: inline-flex; } .chip-model::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
   #scroller { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
-  #thread { max-width: 768px; margin: 0 auto; padding: 8px 20px 28px; display: flex; flex-direction: column; gap: 26px; }
+  #thread { max-width: 760px; margin: 0 auto; padding: 8px 24px 28px; display: flex; flex-direction: column; gap: 26px; }
 
-  .msg.user { align-self: flex-end; max-width: min(82%, 600px); background: var(--bubble); padding: 10px 16px; border-radius: 20px 20px 6px 20px; white-space: pre-wrap; word-break: break-word; }
+  .mark { width: 30px; height: 30px; border-radius: 10px; background: var(--ink); color: var(--on-ink); display: grid; place-items: center; flex: none; }
+  .mark svg { width: 20px; height: 20px; fill: currentColor; stroke: none; }
+  .msg.user { align-self: flex-end; max-width: min(82%, 600px); background: var(--bubble); padding: 10px 17px; border-radius: 22px 22px 7px 22px; white-space: pre-wrap; word-break: break-word; }
   .msg.assistant { display: grid; grid-template-columns: 30px 1fr; gap: 14px; align-items: start; }
-  .msg.assistant .mark { width: 30px; height: 30px; margin-top: 1px; }
   .content { min-width: 0; }
-  .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; font-size: 12px; color: var(--faint); }
-  .act { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; margin-left: -8px; border-radius: 7px; color: var(--muted); font-size: 12px; }
-  .act:hover { background: var(--hover); color: var(--text); }
-  .act svg { width: 14px; height: 14px; }
-
+  .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 11px; margin-top: 9px; font-size: 12px; color: var(--faint); }
+  .act { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; margin-left: -9px; border-radius: 8px; color: var(--muted); font-size: 12px; }
+  .act:hover { background: var(--hover); color: var(--text); } .act svg { width: 14px; height: 14px; }
   .body > :first-child { margin-top: 0; } .body > :last-child { margin-bottom: 0; }
   .body p { margin: .7em 0; } .body ul, .body ol { margin: .7em 0; padding-left: 1.5em; } .body li { margin: .2em 0; }
   .body h3, .body h4, .body h5 { margin: 1.1em 0 .3em; line-height: 1.3; letter-spacing: -.01em; }
   .body code { background: var(--code); padding: .12em .38em; border-radius: 6px; font-size: .88em; font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace; }
-  .body pre { background: var(--code); padding: 14px; border-radius: var(--radius); overflow-x: auto; } .body pre code { padding: 0; background: none; }
-  .body blockquote { margin: .7em 0; padding-left: 14px; border-left: 3px solid var(--line); color: var(--muted); }
+  .body pre { background: var(--code); padding: 14px; border-radius: 14px; overflow-x: auto; } .body pre code { padding: 0; background: none; }
+  .body blockquote { margin: .7em 0; padding-left: 14px; border-left: 3px solid var(--rail-line); color: var(--muted); }
   .body a { color: var(--accent); text-underline-offset: 2px; }
-  .table-wrap { overflow-x: auto; margin: .9em 0; border: 1px solid var(--line); border-radius: var(--radius); }
+  .table-wrap { overflow-x: auto; margin: .9em 0; border: 1px solid var(--rail-line); border-radius: 14px; }
   table { border-collapse: collapse; font-size: 14px; width: 100%; }
-  th, td { padding: 9px 13px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
-  tr:last-child td { border-bottom: 0; }
-  th { background: var(--surface); font-weight: 600; font-size: 13px; }
+  th, td { padding: 9px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--rail-line); } tr:last-child td { border-bottom: 0; }
+  th { background: var(--tile); font-weight: 600; font-size: 13px; }
   .cite { display: inline-block; min-width: 1.55em; text-align: center; font-size: .7em; font-weight: 650; line-height: 1.55; padding: 0 .4em; margin: 0 .12em; border-radius: 6px; background: var(--accent-soft); color: var(--accent) !important; text-decoration: none; vertical-align: .18em; }
   a.cite:hover { filter: brightness(.92); }
-  .sources { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
-  .chip { display: inline-flex; align-items: center; gap: 7px; max-width: 250px; padding: 4px 11px 4px 5px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; color: var(--muted); text-decoration: none; background: var(--bg); transition: border-color .15s; }
+  .sources { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; max-width: 250px; padding: 4px 12px 4px 5px; border: 1px solid var(--rail-line); border-radius: 999px; font-size: 12.5px; color: var(--muted); text-decoration: none; transition: border-color .15s; }
   .chip:hover { border-color: var(--accent); color: var(--text); }
   .chip b { background: var(--accent-soft); color: var(--accent); border-radius: 999px; min-width: 20px; height: 20px; display: grid; place-items: center; font-size: 11px; }
   .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .status { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13.5px; min-height: 26px; }
-  .dots { display: inline-flex; gap: 4px; } .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--warm); animation: bounce 1.1s infinite ease-in-out; }
+  .status { display: flex; align-items: center; gap: 10px; color: var(--gold); font-size: 14px; min-height: 28px; }
+  .dots { display: inline-flex; gap: 4px; } .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); animation: bounce 1.1s infinite ease-in-out; }
   .dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
   @keyframes bounce { 0%, 80%, 100% { opacity: .25; transform: scale(.8); } 40% { opacity: 1; transform: scale(1); } }
-  .error { background: var(--err-bg); color: var(--err); padding: 11px 15px; border-radius: var(--radius); display: flex; gap: 14px; align-items: center; justify-content: space-between; font-size: 14px; }
-  .error button { border: 1px solid currentColor; border-radius: 8px; padding: 4px 13px; }
+  .error { background: var(--err-bg); color: var(--err); padding: 12px 16px; border-radius: 14px; display: flex; gap: 14px; align-items: center; justify-content: space-between; font-size: 14px; }
+  .error button { border: 1px solid currentColor; border-radius: 9px; padding: 4px 14px; }
 
-  /* ---------- empty state ---------- */
-  .empty { text-align: center; padding: 11vh 0 0; }
-  .empty .mark { width: 54px; height: 54px; border-radius: 17px; margin: 0 auto 20px; box-shadow: var(--shadow); } .empty .mark svg { width: 34px; height: 34px; }
+  .empty { text-align: center; padding: 8vh 0 0; }
+  .empty .mark { width: 58px; height: 58px; border-radius: 19px; margin: 0 auto 20px; box-shadow: var(--shadow); } .empty .mark svg { width: 38px; height: 38px; }
   .empty h1 { font-size: 28px; letter-spacing: -.03em; margin: 0 0 8px; font-weight: 650; }
-  .empty p { color: var(--muted); margin: 0 auto 30px; max-width: 460px; }
-  .suggest { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; }
-  .suggest button { text-align: left; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); font-size: 14px; line-height: 1.45; transition: background .15s, border-color .15s; }
-  .suggest button:hover { background: var(--surface); border-color: var(--accent); }
-  .suggest small { display: block; color: var(--muted); margin-top: 5px; font-size: 12.5px; }
+  .empty p { color: var(--muted); margin: 0 auto 28px; max-width: 460px; }
+  .suggest { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; text-align: left; }
+  .suggest button { text-align: left; padding: 15px 17px; border: 1px solid var(--rail-line); border-radius: 18px; font-size: 14px; line-height: 1.45; transition: background .15s, border-color .15s; }
+  .suggest button:hover { background: var(--hover); border-color: var(--accent); }
+  .suggest small { display: block; color: var(--gold); margin-top: 6px; font-size: 12.5px; }
 
-  /* ---------- composer ---------- */
-  .composer-wrap { padding: 6px 20px max(14px, env(safe-area-inset-bottom)); }
-  form { max-width: 768px; margin: 0 auto; background: var(--composer); border: 1px solid var(--line); border-radius: 26px; box-shadow: var(--shadow); display: flex; align-items: flex-end; gap: 8px; padding: 9px 9px 9px 20px; transition: border-color .15s; }
+  .composer-wrap { padding: 4px 20px 16px; }
+  form { max-width: 760px; margin: 0 auto; background: var(--composer); border: 1px solid var(--rail-line); border-radius: 28px; display: flex; align-items: flex-end; gap: 8px; padding: 9px 9px 9px 22px; transition: border-color .15s; }
   form:focus-within { border-color: var(--accent); }
   textarea { flex: 1; resize: none; border: 0; outline: 0; background: none; color: inherit; font: inherit; max-height: 180px; padding: 7px 0; line-height: 1.5; }
-  textarea:focus-visible { outline: none; } /* the pill shows focus instead */
+  textarea:focus-visible { outline: none; }
   textarea::placeholder { color: var(--faint); }
   .send { width: 38px; height: 38px; border-radius: 50%; background: var(--ink); color: var(--on-ink); display: grid; place-items: center; flex: none; transition: opacity .15s, transform .1s; }
-  .send:hover:not(:disabled) { transform: scale(1.05); }
-  .send:disabled { opacity: .25; cursor: not-allowed; }
-  .hint { max-width: 768px; margin: 8px auto 0; text-align: center; color: var(--faint); font-size: 12px; }
-  kbd { font: inherit; padding: 0 5px; border: 1px solid var(--line); border-radius: 5px; }
+  .send:hover:not(:disabled) { transform: scale(1.06); } .send:disabled { opacity: .25; cursor: not-allowed; }
+  .hint { max-width: 760px; margin: 9px auto 0; text-align: center; color: var(--faint); font-size: 12px; }
+  kbd { font: inherit; padding: 0 5px; border: 1px solid var(--rail-line); border-radius: 5px; }
+
+  /* ---------- right rail: recent memories + discover ---------- */
+  .rail { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; overflow-y: auto; }
+  .rail .card { background: transparent; border: 1px solid var(--rail-line); padding: 24px 22px; }
+  .rail h3 { margin: 0 0 14px; font-size: 19px; letter-spacing: -.02em; font-weight: 650; }
+  .rail .memories { flex: 1; min-height: 160px; overflow-y: auto; }
+  .mem { display: flex; gap: 14px; align-items: flex-start; text-align: left; padding: 10px 8px; margin: 0 -8px; border-radius: 14px; width: calc(100% + 16px); }
+  .mem:hover { background: var(--hover); }
+  .mem .ico { width: 38px; height: 38px; border-radius: 11px; background: var(--tile); display: grid; place-items: center; color: var(--muted); flex: none; }
+  .mem .tx { min-width: 0; font-size: 14.5px; line-height: 1.4; }
+  .mem .tx span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .mem .tx small { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
+  .mem-empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+  .discover { position: relative; overflow: hidden; min-height: 236px; flex: none; }
+  .check { display: flex; align-items: center; gap: 12px; padding: 5px 0; font-size: 15px; width: 100%; max-width: calc(100% - 96px); text-align: left; position: relative; z-index: 1; line-height: 1.35; }
+  .check .box { width: 24px; height: 24px; border-radius: 8px; border: 1.5px solid var(--faint); display: grid; place-items: center; color: transparent; flex: none; transition: all .2s; }
+  .check.done .box { background: var(--green); border-color: var(--green); color: #fff; } .check.done .box svg { width: 15px; height: 15px; stroke-width: 2.6; }
+  .check.done span:last-child { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+  .check u { text-underline-offset: 3px; }
+  .cat { position: absolute; right: 8px; bottom: -4px; width: 122px; height: 122px; pointer-events: none; }
+
+  /* ---------- settings popover ---------- */
+  .pop { position: fixed; top: 64px; right: 24px; width: 300px; padding: 18px; border-radius: 20px; background: var(--card); border: 1px solid var(--rail-line); box-shadow: var(--shadow); z-index: 60; display: none; }
+  .pop.open { display: block; }
+  .pop h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 650; }
+  .pop section + section { margin-top: 18px; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; background: var(--tile); border-radius: 12px; }
+  .seg button { padding: 6px 0; border-radius: 9px; font-size: 13.5px; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.18); font-weight: 600; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13.5px; color: var(--muted); } .keys kbd { justify-self: start; }
+  .pop p { margin: 0; font-size: 13.5px; color: var(--muted); }
+
+  .scrim { display: none; }
 
   /* ---------- responsive ---------- */
-  .scrim { display: none; }
+  @media (max-width: 1180px) {
+    .grid { grid-template-columns: var(--side-w) minmax(0, 1fr); } .grid.no-side { grid-template-columns: minmax(0, 1fr); }
+    .rail { position: fixed; top: 0; right: 0; bottom: 0; width: min(92vw, 380px); padding: 16px; background: var(--page); z-index: 50; transform: translateX(105%); transition: transform .24s ease; box-shadow: var(--shadow); display: flex !important; }
+    .shell.rail-open .rail { transform: none; }
+    .shell.rail-open .scrim, .shell.drawer .scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; }
+  }
   @media (max-width: 860px) {
-    .sidebar { position: fixed; inset: 0 auto 0 0; transform: translateX(-100%); margin-left: 0 !important; box-shadow: var(--shadow); width: min(86vw, 320px); }
-    .app.drawer .sidebar { transform: none; }
-    .app.drawer .scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 20; }
+    .appbar { padding: 10px 12px 8px; } .brand { font-size: 23px; } .brand .glyph { width: 29px; height: 26px; }
+    #menu { display: grid; }
+    .grid, .grid.no-side { grid-template-columns: minmax(0, 1fr); padding: 0; gap: 0; }
+    .sidebar { display: flex !important; position: fixed; inset: 0 auto 0 0; width: min(88vw, 340px); z-index: 50; border-radius: 0 var(--r) var(--r) 0; transform: translateX(-105%); transition: transform .24s ease; box-shadow: var(--shadow); background: var(--card); }
+    .shell.drawer .sidebar { transform: none; }
+    .chat { border-radius: var(--r) var(--r) 0 0; border-left: 0; border-right: 0; border-bottom: 0; }
     .suggest { grid-template-columns: 1fr; }
-    #thread { padding: 6px 14px 24px; } .composer-wrap { padding-left: 12px; padding-right: 12px; }
-    .empty { padding-top: 7vh; } .empty h1 { font-size: 24px; }
-    .msg.assistant { grid-template-columns: 26px 1fr; gap: 11px; } .msg.assistant .mark { width: 26px; height: 26px; border-radius: 8px; }
-    .hint kbd, .hint .desk { display: none; }
+    #thread { padding: 6px 14px 24px; } .composer-wrap { padding: 4px 12px max(14px, env(safe-area-inset-bottom)); }
+    .empty { padding-top: 5vh; } .empty h1 { font-size: 24px; }
+    .msg.assistant { grid-template-columns: 26px 1fr; gap: 11px; } .msg.assistant .mark { width: 26px; height: 26px; border-radius: 9px; }
+    .hint .desk { display: none; } .pop { right: 12px; left: 12px; width: auto; top: 58px; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
 <body>
-<div class="app" id="app">
-  <aside class="sidebar" id="sidebar" aria-label="Conversations">
-    <div class="sb-top">
-      <div class="brand"><span class="mark" id="brandMark"></span>minimi</div>
-      <button class="icon-btn" id="collapse" aria-label="Close sidebar" title="Close sidebar"></button>
-    </div>
-    <button class="newchat" id="new"><span data-i="plus"></span>New chat</button>
-    <label class="search"><span data-i="search"></span><input id="search" type="search" placeholder="Search chats" autocomplete="off" aria-label="Search chats"></label>
-    <nav class="history" id="history"></nav>
-    <div class="sb-foot">
-      <div class="avatar">You</div>
-      <div class="who"><b>Your chats</b><span><i></i>Memory on · web search</span></div>
-      <button class="icon-btn" id="theme" aria-label="Toggle theme" title="Toggle theme"></button>
-    </div>
-  </aside>
-  <div class="scrim" id="scrim"></div>
+<div class="shell" id="app">
+  <header class="appbar">
+    <button class="icon-btn" id="menu" aria-label="Open chats" title="Open chats"></button>
+    <div class="brand"><span class="glyph" id="brandGlyph"></span>minimi<span class="dot" id="statusDot" title="Connected"></span></div>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="memBtn" aria-label="Show memories" title="Recent memories"></button>
+    <button class="icon-btn" id="gear" aria-label="Settings" title="Settings" aria-haspopup="dialog"></button>
+  </header>
 
-  <section class="main">
-    <header class="topbar">
-      <button class="icon-btn" id="menu" aria-label="Open sidebar" title="Open sidebar"></button>
-      <div class="title" id="title">New chat</div>
-      <span class="chip-model" id="modelChip" title="Model that wrote the last answer"></span>
-    </header>
-    <main id="scroller"><div id="thread"></div></main>
-    <footer class="composer-wrap">
-      <form id="form">
-        <textarea id="input" rows="1" placeholder="Ask anything…" autofocus aria-label="Message"></textarea>
-        <button class="send" id="send" type="submit" aria-label="Send message"></button>
-      </form>
-      <div class="hint">minimi can make mistakes, so check the sources. <span class="desk"><kbd>Enter</kbd> to send, <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line, <kbd>⌘K</kbd> to search.</span></div>
-    </footer>
+  <div class="grid" id="grid">
+    <aside class="card sidebar" id="sidebar" aria-label="Conversations">
+      <div class="sb-head">
+        <div class="grow"><h2>Your chats</h2><p id="sbSub">memory on</p></div>
+        <button class="icon-btn" id="new" aria-label="New chat" title="New chat"></button>
+        <button class="icon-btn" id="collapse" aria-label="Hide chats" title="Hide chats"></button>
+      </div>
+      <label class="search"><span data-i="search"></span><input id="search" type="search" placeholder="Search chats" autocomplete="off" aria-label="Search chats"></label>
+      <nav class="history" id="history"></nav>
+    </aside>
+
+    <section class="card chat">
+      <div class="chat-head">
+        <button class="icon-btn" id="expand" aria-label="Show chats" title="Show chats" style="display:none"></button>
+        <div class="title" id="title">New chat</div>
+        <span class="chip-model" id="modelChip" title="Model that wrote the last answer"></span>
+      </div>
+      <main id="scroller"><div id="thread"></div></main>
+      <footer class="composer-wrap">
+        <form id="form">
+          <textarea id="input" rows="1" placeholder="Ask anything…" autofocus aria-label="Message"></textarea>
+          <button class="send" id="send" type="submit" aria-label="Send message"></button>
+        </form>
+        <div class="hint">minimi can make mistakes, so check the sources. <span class="desk"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line · <kbd>⌘K</kbd> search</span></div>
+      </footer>
+    </section>
+
+    <aside class="rail" id="rail" aria-label="Memories">
+      <div class="card memories"><h3>Recent memories</h3><div id="mems"></div></div>
+      <div class="card discover">
+        <h3>Discover minimi</h3>
+        <div id="checks"></div>
+        <svg class="cat" viewBox="0 0 120 120" aria-hidden="true">
+          <ellipse cx="62" cy="118" rx="48" ry="30" fill="#d9cdbb"/>
+          <path d="M22 50 28 14l24 20zM102 50 96 14 72 34z" fill="#e6dccb"/><path d="M30 44l3-18 13 11zM94 44l-3-18-13 11z" fill="#e9b4b4"/>
+          <ellipse cx="62" cy="64" rx="40" ry="35" fill="#efe6d6"/>
+          <path d="M62 30c-9 0-16 3-20 9 7 2 12 6 14 12 2-7 4-14 6-21zM62 30c9 0 16 3 20 9-7 2-12 6-14 12-2-7-4-14-6-21z" fill="#b7a58f" opacity=".85"/>
+          <ellipse cx="46" cy="66" rx="6.5" ry="7.5" fill="#3a2e25"/><ellipse cx="78" cy="66" rx="6.5" ry="7.5" fill="#3a2e25"/>
+          <circle cx="48" cy="63.5" r="2.2" fill="#fff"/><circle cx="80" cy="63.5" r="2.2" fill="#fff"/>
+          <path d="M57 76h10l-5 6z" fill="#e48c8c"/><path d="M62 82c0 4-4 6-8 4M62 82c0 4 4 6 8 4" stroke="#7a6652" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <path d="M30 76 14 73M30 82 15 85M94 76l16-3M94 82l15 3" stroke="#a89a88" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </aside>
+  </div>
+</div>
+<div class="scrim" id="scrim"></div>
+
+<div class="pop" id="pop" role="dialog" aria-label="Settings">
+  <section><h4>Appearance</h4>
+    <div class="seg" id="seg"><button data-theme-opt="light" aria-pressed="false">Light</button><button data-theme-opt="dark" aria-pressed="false">Dark</button><button data-theme-opt="system" aria-pressed="true">System</button></div>
+  </section>
+  <section><h4>Memory</h4><p>minimi remembers every chat you keep. Deleting a chat makes it forget that conversation too.</p></section>
+  <section><h4>Shortcuts</h4>
+    <div class="keys"><kbd>Enter</kbd><span>Send</span><kbd>Shift</kbd><span>+ Enter for a new line</span><kbd>⌘K</kbd><span>Search chats</span><kbd>Esc</kbd><span>Close panels</span></div>
   </section>
 </div>
 
 <script type="module">
 import { renderMarkdown } from "/markdown.js";
 
-/* ---------- tiny helpers ---------- */
+/* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
-const store = {
-  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
-};
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>', search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>', check: '<path d="m5 12 5 5 9-10"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h10"/>', panel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>', stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  railpanel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/>',
+  cal: '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/>', chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
 const CAT = '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 14V6l6 4h6l6-4v8a9 9 0 0 1-18 0z"/><circle cx="12.5" cy="16" r="1.5" fill="var(--ink)"/><circle cx="19.5" cy="16" r="1.5" fill="var(--ink)"/></svg>';
-const markEl = () => el("span", "mark", CAT);
 document.querySelectorAll("[data-i]").forEach((n) => { n.outerHTML = icon(n.dataset.i); });
-$("brandMark").innerHTML = CAT;
-$("collapse").innerHTML = icon("panel"); $("menu").innerHTML = icon("menu"); $("send").innerHTML = icon("up");
+$("brandGlyph").innerHTML = CAT.replaceAll('fill="var(--ink)"', 'fill="var(--page)"'); // eyes cut through to the page, like the logo
+$("menu").innerHTML = icon("menu"); $("memBtn").innerHTML = icon("railpanel"); $("gear").innerHTML = icon("gear");
+$("new").innerHTML = icon("edit"); $("collapse").innerHTML = icon("panel"); $("expand").innerHTML = icon("panel"); $("send").innerHTML = icon("up");
 
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-const app = $("app"), thread = $("thread"), scroller = $("scroller"), input = $("input"), sendBtn = $("send");
+const shell = $("app"), grid = $("grid"), thread = $("thread"), scroller = $("scroller"), input = $("input"), sendBtn = $("send");
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
 const fmtTime = (iso) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
 const toBottom = () => { scroller.scrollTop = scroller.scrollHeight; };
 const isMobile = () => matchMedia("(max-width: 860px)").matches;
+const isNarrow = () => matchMedia("(max-width: 1180px)").matches;
 const shortModel = (name = "") => { const [p, ...r] = name.split(":"); const id = r.join(":").split("/").pop() || p; return p === "anthropic" ? id : `${p} · ${id}`; };
+function ago(iso) {
+  const s = (Date.now() - new Date(iso)) / 1000;
+  if (s < 60) return "just now"; if (s < 3600) return `${Math.floor(s / 60)} min ago`; if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  const d = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) / 86_400_000);
+  return d === 1 ? "yesterday" : d < 7 ? `${d} days ago` : new Date(iso).toLocaleDateString([], { day: "numeric", month: "short" });
+}
 
-/* ---------- theme ---------- */
-function setTheme(t) { document.documentElement.dataset.theme = t; store.set("minimi.theme", t); $("theme").innerHTML = icon(t === "dark" ? "sun" : "moon"); }
-setTheme(store.get("minimi.theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
-$("theme").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+/* ---------- theme (system | light | dark) ---------- */
+const mq = matchMedia("(prefers-color-scheme: dark)");
+let themePref = store.get("minimi.theme") || "system";
+function applyTheme() {
+  document.documentElement.dataset.resolved = themePref === "system" ? (mq.matches ? "dark" : "light") : themePref;
+  document.querySelectorAll("[data-theme-opt]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeOpt === themePref)));
+}
+mq.addEventListener("change", applyTheme);
+document.querySelectorAll("[data-theme-opt]").forEach((b) => { b.onclick = () => { themePref = b.dataset.themeOpt; store.set("minimi.theme", themePref); applyTheme(); tick("theme"); }; });
+applyTheme();
 
-/* ---------- sidebar ---------- */
+/* ---------- discover checklist (ticks itself as you try things) ---------- */
+const STEPS = [
+  { id: "ask", text: "Ask your first question" },
+  { id: "day", text: "Ask about “last Tuesday”" },
+  { id: "search", text: "Press ⌘K to search chats", link: true },
+  { id: "theme", text: "Try dark or light", link: true },
+];
+let done = new Set(JSON.parse(store.get("minimi.discover") || "[]"));
+function renderChecks() {
+  const box = $("checks"); box.replaceChildren();
+  for (const s of STEPS) {
+    const row = el("button", "check" + (done.has(s.id) ? " done" : ""), `<span class="box">${icon("check")}</span><span>${s.link ? `<u>${s.text}</u>` : s.text}</span>`);
+    row.type = "button";
+    row.onclick = () => { if (s.id === "search") openSearch(); if (s.id === "theme") openPop(true); };
+    box.append(row);
+  }
+}
+function tick(id) { if (done.has(id)) return; done.add(id); store.set("minimi.discover", JSON.stringify([...done])); renderChecks(); }
+renderChecks();
+
+/* ---------- panels ---------- */
+function closeDrawers() { shell.classList.remove("drawer", "rail-open"); }
+function syncExpand() { $("expand").style.display = grid.classList.contains("no-side") && !isMobile() ? "grid" : "none"; }
+function toggleSidebar() { if (isMobile()) { shell.classList.toggle("drawer"); shell.classList.remove("rail-open"); } else { grid.classList.toggle("no-side"); syncExpand(); } }
+function toggleRail() { if (isNarrow()) { shell.classList.toggle("rail-open"); shell.classList.remove("drawer"); } else grid.classList.toggle("no-rail"); }
+$("menu").onclick = toggleSidebar; $("collapse").onclick = toggleSidebar; $("expand").onclick = toggleSidebar; $("memBtn").onclick = toggleRail;
+$("scrim").onclick = () => { closeDrawers(); closePop(); };
+function openPop(force) { $("pop").classList.toggle("open", force ?? !$("pop").classList.contains("open")); }
+function closePop() { $("pop").classList.remove("open"); }
+$("gear").onclick = (e) => { e.stopPropagation(); openPop(); };
+addEventListener("click", (e) => { if (!e.target.closest("#pop") && !e.target.closest("#gear") && !e.target.closest(".check")) closePop(); });
+function openSearch() { grid.classList.remove("no-side"); syncExpand(); if (isMobile()) shell.classList.add("drawer"); $("search").focus(); tick("search"); }
+addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openSearch(); }
+  if (e.key === "Escape") { closeDrawers(); closePop(); }
+});
+
+/* ---------- status dot ---------- */
+function setDot(ok) { $("statusDot").classList.toggle("bad", !ok); $("statusDot").title = ok ? "Connected" : "Can't reach the server"; }
+async function pingHealth() { try { setDot((await fetch("/health", { cache: "no-store" })).ok); } catch { setDot(false); } }
+pingHealth(); setInterval(pingHealth, 30_000);
+
+/* ---------- conversations ---------- */
 let sessionId = store.get("minimi.session") || crypto.randomUUID();
 store.set("minimi.session", sessionId);
-let sessions = [];
-let controller = null;
-let lastMessage = "";
+let sessions = [], controller = null, lastMessage = "";
 
 function groupOf(iso) {
   const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) / 86_400_000);
   return days <= 0 ? "Today" : days === 1 ? "Yesterday" : days <= 7 ? "Previous 7 days" : days <= 30 ? "Previous 30 days" : "Older";
 }
-
 function renderHistory() {
+  $("sbSub").textContent = `${sessions.length} ${sessions.length === 1 ? "chat" : "chats"} · memory on`;
   const q = $("search").value.trim().toLowerCase();
   const list = sessions.filter((s) => !q || s.title.toLowerCase().includes(q));
-  const box = $("history");
-  box.replaceChildren();
-  if (!list.length) { box.append(el("div", "empty-history", q ? "No chats match your search." : "Your conversations will appear here.")); return; }
+  const box = $("history"); box.replaceChildren();
+  if (!list.length) { box.append(el("div", "empty-history", q ? "No chats match your search." : "<b>You're all set!</b>Your conversations will appear here once you ask something.")); return; }
   let current = "";
   for (const s of list) {
     const g = groupOf(s.updatedAt);
     if (g !== current) { current = g; box.append(el("div", "group-label", g)); }
     const row = el("div", "item" + (s.id === sessionId ? " active" : ""));
-    const open = el("button", "open"); open.type = "button"; open.textContent = s.title; open.title = s.title;
+    const open = el("button", "open"); open.type = "button"; open.title = s.title;
+    const t = el("span", "t"); t.textContent = s.title; open.append(t, el("span", "s", ago(s.updatedAt)));
     open.onclick = () => openSession(s.id);
     const del = el("button", "del", icon("trash")); del.type = "button"; del.setAttribute("aria-label", `Delete chat: ${s.title}`); del.title = "Delete chat";
     del.onclick = (e) => { e.stopPropagation(); removeSession(s); };
-    row.append(open, del);
-    box.append(row);
+    row.append(open, del); box.append(row);
   }
 }
-
-async function refreshSessions() {
-  try { sessions = (await (await fetch("/api/sessions")).json()).sessions ?? []; } catch { /* keep the old list */ }
-  renderHistory();
-}
-
+async function refreshSessions() { try { sessions = (await (await fetch("/api/sessions")).json()).sessions ?? []; } catch {} renderHistory(); }
 async function removeSession(s) {
   if (!confirm(`Delete "${s.title}"?\n\nminimi will also forget this conversation.`)) return;
   await fetch(`/api/sessions/${encodeURIComponent(s.id)}`, { method: "DELETE" }).catch(() => {});
-  if (s.id === sessionId) newChat(); else await refreshSessions();
-  await refreshSessions();
+  if (s.id === sessionId) newChat();
+  await Promise.all([refreshSessions(), refreshMemories()]);
 }
-
-function closeDrawer() { app.classList.remove("drawer"); }
-function toggleSidebar() { isMobile() ? app.classList.toggle("drawer") : app.classList.toggle("collapsed"); }
-$("menu").onclick = toggleSidebar; $("collapse").onclick = toggleSidebar; $("scrim").onclick = closeDrawer;
 $("search").addEventListener("input", renderHistory);
-addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); if (app.classList.contains("collapsed")) app.classList.remove("collapsed"); $("search").focus(); }
-  if (e.key === "Escape") closeDrawer();
-});
+
+/* ---------- memories rail ---------- */
+const DATEISH = /\b(yesterday|today|last \w+day|\d+ days? ago|\d{1,2}(st|nd|rd|th)? (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w* \d{1,2})/i;
+async function refreshMemories() {
+  let memories = [];
+  try { memories = (await (await fetch("/api/memories")).json()).memories ?? []; } catch {}
+  const box = $("mems"); box.replaceChildren();
+  if (!memories.length) { box.append(el("div", "mem-empty", "Nothing yet. Ask me something and I'll remember it.")); return; }
+  for (const m of memories) {
+    const b = el("button", "mem"); b.type = "button";
+    b.append(el("span", "ico", icon(DATEISH.test(m.text) ? "cal" : "chat")));
+    const tx = el("div", "tx"); const t = el("span"); t.textContent = `You asked: ${m.text}`; tx.append(t, el("small", "", ago(m.createdAt)));
+    b.append(tx); b.onclick = () => { openSession(m.sessionId); if (isNarrow()) closeDrawers(); };
+    box.append(b);
+  }
+}
 
 /* ---------- messages ---------- */
-function addUser(text) {
-  const m = el("div", "msg user"); m.textContent = text; thread.append(m); return m;
-}
-
+const addUser = (text) => { const m = el("div", "msg user"); m.textContent = text; thread.append(m); return m; };
 function sourcesBar(items) {
   const bar = el("div", "sources");
   for (const s of items) {
     const a = el("a", "chip"); a.href = s.url; a.target = "_blank"; a.rel = "noopener noreferrer"; a.title = s.title;
-    a.append(el("b", "", String(s.id)), el("span", "", hostOf(s.url)));
-    bar.append(a);
+    a.append(el("b", "", String(s.id)), el("span", "", hostOf(s.url))); bar.append(a);
   }
   return bar;
 }
-
 function metaRow(rawText, parts) {
   const row = el("div", "meta");
   const copy = el("button", "act", icon("copy") + "Copy"); copy.type = "button";
-  copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(rawText()); copy.innerHTML = icon("check") + "Copied"; setTimeout(() => (copy.innerHTML = icon("copy") + "Copy"), 1600); } catch {}
-  };
-  row.append(copy);
-  for (const p of parts.filter(Boolean)) row.append(el("span", "", p));
-  return row;
+  copy.onclick = async () => { try { await navigator.clipboard.writeText(rawText()); copy.innerHTML = icon("check") + "Copied"; setTimeout(() => (copy.innerHTML = icon("copy") + "Copy"), 1600); } catch {} };
+  row.append(copy); for (const p of parts.filter(Boolean)) row.append(el("span", "", p)); return row;
 }
-
 function addAssistant(text = "", sources = [], iso, modelLabel) {
-  const m = el("div", "msg assistant");
-  const content = el("div", "content");
-  const body = el("div", "body", renderMarkdown(text, sources));
-  content.append(body);
-  m.append(markEl(), content);
-  if (text) {
-    if (sources.length) content.append(sourcesBar(sources));
-    content.append(metaRow(() => text, [iso && fmtTime(iso), modelLabel]));
-  }
-  thread.append(m);
-  return { m, body, content };
+  const m = el("div", "msg assistant"); const content = el("div", "content");
+  const body = el("div", "body", renderMarkdown(text, sources)); content.append(body);
+  m.append(el("span", "mark", CAT), content);
+  if (text) { if (sources.length) content.append(sourcesBar(sources)); content.append(metaRow(() => text, [iso && fmtTime(iso), modelLabel])); }
+  thread.append(m); return { m, body, content };
 }
-
 function showEmpty() {
   const box = el("div", "empty");
-  box.append(el("span", "mark", CAT), el("h1", "", "What do you want to know?"),
-    el("p", "", "I search the live web, work out dates for you, and remember everything we have talked about."));
-  const grid = el("div", "suggest");
+  box.append(el("span", "mark", CAT), el("h1", "", "What do you want to know?"), el("p", "", "I search the live web, work out dates for you, and remember everything we have talked about."));
+  const cards = el("div", "suggest");
   const items = [
     ["On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing since?", "Re-checks a shortlist"],
     ["What did I ask you on 3 November? Is your answer still correct today?", "Uses memory, then verifies"],
-    ["Last Tuesday I asked about Postgres hosting. Has any pricing changed since?", "Resolves \"last Tuesday\""],
+    ["Last Tuesday I asked about Postgres hosting. Has any pricing changed since?", "Resolves “last Tuesday”"],
     ["What is the latest stable Node.js LTS version?", "Quick live lookup"],
   ];
-  for (const [q, sub] of items) {
-    const b = el("button"); b.type = "button"; b.innerHTML = ""; b.append(document.createTextNode(q), el("small", "", sub));
-    b.onclick = () => { input.value = q; send(); };
-    grid.append(b);
-  }
-  box.append(grid); thread.append(box);
+  for (const [q, sub] of items) { const b = el("button"); b.type = "button"; b.append(document.createTextNode(q), el("small", "", sub)); b.onclick = () => { input.value = q; send(); }; cards.append(b); }
+  box.append(cards); thread.append(box);
 }
-
-function setHeader(title, model) {
-  $("title").textContent = title || "New chat";
-  const chip = $("modelChip");
-  chip.textContent = model || ""; chip.classList.toggle("show", Boolean(model));
-}
-
+function setHeader(title, model) { $("title").textContent = title || "New chat"; const c = $("modelChip"); c.textContent = model || ""; c.classList.toggle("show", Boolean(model)); }
 async function loadHistory() {
   try {
     const { messages = [] } = await (await fetch(`/api/history?sessionId=${encodeURIComponent(sessionId)}`)).json();
     thread.replaceChildren();
     if (!messages.length) { setHeader("New chat"); return showEmpty(); }
-    const first = messages.find((m) => m.role === "user");
-    setHeader(first?.content.replace(/\s+/g, " ").slice(0, 80));
+    setHeader(messages.find((m) => m.role === "user")?.content.replace(/\s+/g, " ").slice(0, 80));
     for (const m of messages) m.role === "user" ? addUser(m.content) : addAssistant(m.content, m.sources, m.timestamp);
     toBottom();
   } catch { thread.replaceChildren(); setHeader("New chat"); showEmpty(); }
 }
-
 function newChat() {
   if (controller) controller.abort();
   sessionId = crypto.randomUUID(); store.set("minimi.session", sessionId);
-  thread.replaceChildren(); setHeader("New chat"); showEmpty(); renderHistory();
-  if (isMobile()) closeDrawer();
-  input.focus();
+  thread.replaceChildren(); setHeader("New chat"); showEmpty(); renderHistory(); closeDrawers(); input.focus();
 }
 async function openSession(id) {
-  if (id === sessionId) { if (isMobile()) closeDrawer(); return; }
+  if (id === sessionId) { closeDrawers(); return; }
   if (controller) controller.abort();
-  sessionId = id; store.set("minimi.session", id);
-  renderHistory(); await loadHistory();
-  if (isMobile()) closeDrawer();
+  sessionId = id; store.set("minimi.session", id); renderHistory(); await loadHistory(); closeDrawers();
 }
 $("new").onclick = newChat;
 
 /* ---------- sending ---------- */
 function setBusy(busy) {
-  input.disabled = busy;
-  sendBtn.innerHTML = icon(busy ? "stop" : "up");
+  input.disabled = busy; sendBtn.innerHTML = icon(busy ? "stop" : "up");
   sendBtn.setAttribute("aria-label", busy ? "Stop generating" : "Send message");
-  sendBtn.disabled = !busy && !input.value.trim();
-  if (!busy) input.focus();
+  sendBtn.disabled = !busy && !input.value.trim(); if (!busy) input.focus();
 }
-
 async function* sseEvents(response) {
   const reader = response.body.getReader(); const decoder = new TextDecoder(); let buf = "";
   for (;;) {
-    const { value, done } = await reader.read(); if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx;
+    const { value, done: end } = await reader.read(); if (end) break;
+    buf += decoder.decode(value, { stream: true }); let idx;
     while ((idx = buf.indexOf("\n\n")) >= 0) {
       const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
       const data = block.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trimStart()).join("\n");
@@ -393,37 +489,25 @@ async function* sseEvents(response) {
     }
   }
 }
-
 async function send(retry = false) {
   if (controller) { controller.abort(); return; } // the send button doubles as Stop
   const text = retry ? lastMessage : input.value.trim();
   if (!text) return;
   lastMessage = text;
   if (!retry) {
-    thread.querySelector(".empty")?.remove();
-    addUser(text);
-    input.value = ""; input.style.height = "auto";
+    thread.querySelector(".empty")?.remove(); addUser(text); input.value = ""; input.style.height = "auto";
     if ($("title").textContent === "New chat") setHeader(text.replace(/\s+/g, " ").slice(0, 80));
+    tick("ask"); if (DATEISH.test(text) || /\b(mon|tues|wednes|thurs|fri|satur|sun)day\b/i.test(text)) tick("day");
   }
   thread.querySelectorAll(".error").forEach((e) => e.remove());
-
   const { m, body, content } = addAssistant();
   const status = el("div", "status", `<span class="dots"><i></i><i></i><i></i></span><span>Thinking</span>`);
-  status.setAttribute("aria-live", "polite");
-  content.prepend(status);
-  toBottom();
-
-  controller = new AbortController();
-  setBusy(true);
+  status.setAttribute("aria-live", "polite"); content.prepend(status); toBottom();
+  controller = new AbortController(); setBusy(true);
   let raw = "", sources = [], frame = 0, model = "", ms = 0;
   const paint = () => { frame = 0; const stick = nearBottom(); body.innerHTML = renderMarkdown(raw, sources); if (stick) toBottom(); };
-
   try {
-    const res = await fetch("/api/chat", {
-      method: "POST", signal: controller.signal,
-      headers: { "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify({ sessionId, message: text, tz }),
-    });
+    const res = await fetch("/api/chat", { method: "POST", signal: controller.signal, headers: { "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify({ sessionId, message: text, tz }) });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status})`);
     for await (const ev of sseEvents(res)) {
       if (ev.type === "status") status.lastElementChild.textContent = ev.text;
@@ -433,32 +517,28 @@ async function send(retry = false) {
       else if (ev.type === "done") { model = shortModel(ev.metrics?.model); ms = ev.metrics?.totalMs ?? 0; }
       else if (ev.type === "error") throw new Error(ev.message);
     }
-    cancelAnimationFrame(frame); paint(); status.remove();
+    cancelAnimationFrame(frame); paint(); status.remove(); setDot(true);
     if (sources.length) content.append(sourcesBar(sources));
     content.append(metaRow(() => raw, [fmtTime(new Date().toISOString()), model, ms ? `${(ms / 1000).toFixed(1)}s` : ""]));
     setHeader($("title").textContent, model);
-    await refreshSessions();
+    await Promise.all([refreshSessions(), refreshMemories()]);
   } catch (err) {
     cancelAnimationFrame(frame); status.remove();
-    if (err.name === "AbortError") {
-      paint(); content.append(el("div", "meta", "<span>Stopped. This answer was not saved.</span>"));
-    } else {
+    if (err.name === "AbortError") { paint(); content.append(el("div", "meta", "<span>Stopped. This answer was not saved.</span>")); }
+    else {
       if (!raw) m.remove(); else paint();
       const box = el("div", "error"); box.append(el("span", "", err.message || "Something went wrong."));
       const b = el("button", "", "Retry"); b.type = "button"; b.onclick = () => send(true); box.append(b); thread.append(box);
     }
-  } finally {
-    controller = null; setBusy(false); toBottom();
-  }
+  } finally { controller = null; setBusy(false); toBottom(); }
 }
-
 $("form").addEventListener("submit", (e) => { e.preventDefault(); send(); });
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 180) + "px"; if (!controller) sendBtn.disabled = !input.value.trim(); });
 
 /* ---------- boot ---------- */
 sendBtn.disabled = true;
-await Promise.all([loadHistory(), refreshSessions()]);
+await Promise.all([loadHistory(), refreshSessions(), refreshMemories()]);
 </script>
 </body>
 </html>

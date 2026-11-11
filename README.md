@@ -29,7 +29,7 @@ tiers to follow the date and re-verification rules most reliably.
 | Command | What it does |
 |---|---|
 | `npm run dev` | server with reload |
-| `npm test` | 127 unit and integration tests, no keys or network needed |
+| `npm test` | 129 unit and integration tests, no keys or network needed |
 | `npm run typecheck` / `npm run build` | strict TypeScript |
 | `npm run bench` | the speed pass: Tavily depth, snippet length, real parallel speed-up; writes `evals/speed.md` (needs keys) |
 | `npm run eval` | 16 end-to-end cases against the real models and search, writes `evals/results.md` (needs keys) |
@@ -61,8 +61,17 @@ curl -s localhost:3000/api/chat -H 'content-type: application/json' -d '{
 | `now` | optional ISO instant to pretend it is (replay "last Tuesday" scenarios deterministically) |
 
 `GET /api/history?sessionId=...` returns a chat's stored messages.
-`GET /api/sessions` lists conversations (newest first, titled by the first question) and `DELETE /api/sessions/:id` removes one, which also removes it from the agent's memory.
+`GET /api/memories` returns the most recent distinct questions across chats. `GET /api/sessions` lists conversations (newest first, titled by the first question) and `DELETE /api/sessions/:id` removes one, which also removes it from the agent's memory.
 
 ## The interface
 
-A ChatGPT-style layout in minimi's palette: conversation list on the left (grouped Today, Yesterday, Previous 7 days, and so on, with search and delete), the chat on the right. It streams answers, shows live "Searching: ..." status, numbered source chips, copy buttons and the model that answered. It has light and dark themes and a drawer sidebar on mobile. Shortcuts: `Enter` send, `Shift+Enter` new line, `⌘K` search chats.
+Modelled on the minimi desktop app and structured like ChatGPT.
+
+- **Your chats (left card):** conversations grouped Today, Yesterday, Previous 7 days and older, with relative times, search, new chat and delete.
+- **Chat window (centre card):** streaming answers with live "Searching: ..." status, numbered source chips, a copy button, and the model that answered. Pill composer; the send button becomes Stop while it answers.
+- **Recent memories (right card):** the questions minimi remembers across all chats; click one to jump to that conversation.
+- **Discover minimi (right card):** a checklist that ticks itself as you try things.
+- **Header:** logo, a status dot that goes red if the server is unreachable, and a settings gear (light, dark or system theme; shortcuts).
+- **Responsive:** the right rail becomes a drawer below 1180 px, and the chats card becomes a drawer on phones.
+
+Shortcuts: `Enter` send, `Shift+Enter` new line, `⌘K` search chats, `Esc` close panels.
