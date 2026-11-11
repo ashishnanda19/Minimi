@@ -1,4 +1,5 @@
 import type { SourceRef } from "../store/db.js";
+import type { EvidenceSource } from "./verify.js";
 
 export interface SearchLogEntry {
   query: string;
@@ -38,18 +39,26 @@ export const hostOf = (url: string): string => {
  */
 export class SourceRegistry {
   private readonly byUrl = new Map<string, SourceRef>();
+  private readonly text = new Map<number, string>();
   readonly log: SearchLogEntry[] = [];
 
-  register(item: { title: string; url: string; published?: string }): number {
+  register(item: { title: string; url: string; published?: string; text?: string }): number {
     const key = normalizeUrl(item.url);
     const existing = this.byUrl.get(key);
     if (existing) {
       if (!existing.published && item.published) existing.published = item.published;
+      if (item.text && !(this.text.get(existing.id) ?? "").includes(item.text)) this.text.set(existing.id, `${this.text.get(existing.id) ?? ""} ${item.text}`.trim());
       return existing.id;
     }
     const id = this.byUrl.size + 1;
     this.byUrl.set(key, { id, title: item.title, url: item.url, published: item.published });
+    if (item.text) this.text.set(id, item.text);
     return id;
+  }
+
+  /** Everything the model was shown, with the snippet text, so the answer can be checked against it. */
+  evidence(): EvidenceSource[] {
+    return this.all().map((s) => ({ id: s.id, url: s.url, title: s.title, published: s.published, text: this.text.get(s.id) ?? "" }));
   }
 
   all(): SourceRef[] {

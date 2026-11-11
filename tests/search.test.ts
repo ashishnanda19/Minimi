@@ -211,3 +211,45 @@ describe("recoverSince", () => {
     expect(seen).toContain("2026-11-03");
   });
 });
+
+import { classifySource, entityTokens, rankHits } from "../src/tools/search.js";
+
+describe("source quality ranking", () => {
+  const hit = (url: string, extra: Partial<Hit> = {}): Hit => ({ title: url, url, content: "c", inWindow: false, ...extra });
+
+  it("extracts the product names from a query, not the generic words", () => {
+    expect(entityTokens("HubSpot Sales Hub pricing and new features")).toEqual(["hubspot", "sales"]);
+    expect(entityTokens("Neon Postgres pricing since 2026-11-03")).toEqual(["neon", "postgres", "2026"]);
+  });
+  it("recognises official pages, review aggregators and others", () => {
+    const t = entityTokens("HubSpot pricing");
+    expect(classifySource("https://www.hubspot.com/pricing/sales", t)).toBe("official");
+    expect(classifySource("https://www.g2.com/products/hubspot-sales-hub/pricing", t)).toBe("aggregator");
+    expect(classifySource("https://www.trustradius.com/products/hubspot", t)).toBe("aggregator");
+    expect(classifySource("https://techcrunch.com/hubspot-news", t)).toBe("other");
+    expect(classifySource("https://neon.tech/pricing", entityTokens("Neon pricing"))).toBe("official"); // matches before the TLD
+  });
+  it("ranks official first and aggregators last, keeping the provider order within a class", () => {
+    const ranked = rankHits("HubSpot pricing", [
+      hit("https://www.g2.com/hubspot"), hit("https://blog.example.com/a"), hit("https://hubspot.com/pricing"), hit("https://blog.example.com/b"),
+    ]);
+    expect(ranked.map((h) => h.url)).toEqual(["https://hubspot.com/pricing", "https://blog.example.com/a", "https://blog.example.com/b", "https://www.g2.com/hubspot"]);
+    expect(ranked.map((h) => h.source)).toEqual(["official", "other", "other", "aggregator"]);
+  });
+  it("lifts a dated in-window result above an undated one of the same class", () => {
+    const ranked = rankHits("Neon pricing", [hit("https://a.com/old"), hit("https://b.com/new", { inWindow: true })]);
+    expect(ranked[0]!.url).toBe("https://b.com/new");
+  });
+  it("tells the model which results are official and which are review sites", () => {
+    const text = formatHits("HubSpot pricing", undefined, rankHits("HubSpot pricing", [hit("https://hubspot.com/p"), hit("https://g2.com/x")]), [1, 2]);
+    expect(text).toContain("https://hubspot.com/p | undated | official site");
+    expect(text).toContain("https://g2.com/x | undated | third-party review site");
+  });
+  it("the tool keeps each result's text so the answer can be checked against it", async () => {
+    const registry = new SourceRegistry();
+    const provider = fakeProvider(async () => [{ title: "HubSpot", url: "https://hubspot.com/p", content: "Starter is $20 per seat per month." }]);
+    const tool = createSearchTool({ provider, cache: new TtlCache<Hit[]>(5, 1000), registry });
+    await (tool.execute as any)({ query: "hubspot pricing" }, { abortSignal: undefined, toolCallId: "t", messages: [] });
+    expect(registry.evidence()[0]!.text).toContain("$20 per seat");
+  });
+});

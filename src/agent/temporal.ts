@@ -112,13 +112,20 @@ export function buildCalendar(now: Date, tz: string, back = 14, forward = 7): st
 
 export interface DateRef {
   phrase: string;
+  /** First day referred to. */
   date: Civil;
+  /** Last day (inclusive) when the phrase names a span such as "last week". */
+  end?: Civil;
+  /** For "this morning" and friends: which part of the day. */
+  part?: "morning" | "afternoon" | "evening";
 }
 
 const MONTH_RE = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
 const WEEKDAY_RE = "sunday|monday|tuesday|wednesday|thursday|friday|saturday";
+const COUNT_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
 const monthIndex = (s: string) => MONTHS.findIndex((m) => s.toLowerCase().startsWith(m.toLowerCase())) + 1;
 const weekdayIndex = (s: string) => WEEKDAYS_LONG.findIndex((w) => w.toLowerCase() === s.toLowerCase());
+const count = (s: string) => COUNT_WORDS[s.toLowerCase()] ?? Number(s);
 
 function validCivil(y: number, m: number, d: number): Civil | undefined {
   const c = fromUtc(Date.UTC(y, m - 1, d));
@@ -132,43 +139,97 @@ function mostRecent(m: number, d: number, today: Civil): Civil | undefined {
   return validCivil(today.y - 1, m, d) ?? validCivil(today.y - 2, m, d); // 29 Feb falls back to the last leap year
 }
 
+const monthSpan = (y: number, m: number): { date: Civil; end: Civil } => ({ date: { y, m, d: 1 }, end: fromUtc(Date.UTC(y, m, 0)) });
+/** Monday of the week containing `c`. */
+const mondayOf = (c: Civil): Civil => addDays(c, -((weekdayOf(c) + 6) % 7));
+/** The calendar month `n` months before `c`'s month, as a span. */
+function monthsBack(c: Civil, n: number) {
+  const idx = c.y * 12 + (c.m - 1) - n;
+  return monthSpan(Math.floor(idx / 12), (idx % 12) + 1);
+}
+
 /**
- * Finds the past dates a user message refers to ("last Tuesday", "3 November", "5 days ago", "yesterday").
- * Done in code so a weak model is handed the answer instead of being trusted to do calendar maths.
+ * Finds the past days and spans a user message refers to: "last Tuesday", "3 November", "5 days ago", "yesterday",
+ * "last week", "in October", "2 weeks ago", "this morning". Done in code so a weak model is handed the answer
+ * instead of being trusted to do calendar maths.
  */
 export function resolveDateRefs(text: string, now: Date, tz: string): DateRef[] {
   const today = civilOf(now, tz);
   const found: (DateRef & { at: number })[] = [];
   const claimed: [number, number][] = [];
-  const add = (match: RegExpMatchArray, date: Civil | undefined) => {
+  const add = (match: RegExpMatchArray, span: { date: Civil; end?: Civil; part?: DateRef["part"] } | undefined) => {
     const at = match.index ?? 0;
     const end = at + match[0].length;
-    if (!date || claimed.some(([s, e]) => at < e && end > s)) return;
+    if (!span || claimed.some(([s, e]) => at < e && end > s)) return;
     claimed.push([at, end]);
-    found.push({ phrase: match[0].trim(), date, at });
+    found.push({ phrase: match[0].trim(), ...span, at });
   };
+  const day = (date: Civil | undefined) => (date ? { date } : undefined);
 
-  // Most specific patterns first so "last Monday" is not also read as a bare "Monday".
-  for (const m of text.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) add(m, validCivil(+m[1]!, +m[2]!, +m[3]!));
+  // Most specific patterns first so "last Monday" is not also read as a bare "Monday", and "October 3" is not read as "in October".
+  for (const m of text.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) add(m, day(validCivil(+m[1]!, +m[2]!, +m[3]!)));
   for (const m of text.matchAll(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH_RE})\\b(?:,?\\s+(\\d{4}))?`, "gi"))) {
-    add(m, m[3] ? validCivil(+m[3], monthIndex(m[2]!), +m[1]!) : mostRecent(monthIndex(m[2]!), +m[1]!, today));
+    add(m, day(m[3] ? validCivil(+m[3], monthIndex(m[2]!), +m[1]!) : mostRecent(monthIndex(m[2]!), +m[1]!, today)));
   }
   for (const m of text.matchAll(new RegExp(`\\b(${MONTH_RE})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4}))?`, "gi"))) {
-    add(m, m[3] ? validCivil(+m[3], monthIndex(m[1]!), +m[2]!) : mostRecent(monthIndex(m[1]!), +m[2]!, today));
+    add(m, day(m[3] ? validCivil(+m[3], monthIndex(m[1]!), +m[2]!) : mostRecent(monthIndex(m[1]!), +m[2]!, today)));
   }
-  for (const m of text.matchAll(/\bday before yesterday\b/gi)) add(m, addDays(today, -2));
-  for (const m of text.matchAll(/\byesterday\b/gi)) add(m, addDays(today, -1));
-  for (const m of text.matchAll(/\b(\d{1,3}) days? ago\b/gi)) add(m, addDays(today, -Number(m[1])));
+  for (const m of text.matchAll(/\blast week\b/gi)) { const mon = addDays(mondayOf(today), -7); add(m, { date: mon, end: addDays(mon, 6) }); }
+  for (const m of text.matchAll(/\bthis week\b/gi)) add(m, { date: mondayOf(today), end: today });
+  for (const m of text.matchAll(/\blast month\b/gi)) add(m, monthsBack(today, 1));
+  for (const m of text.matchAll(/\bthis month\b/gi)) add(m, { date: { y: today.y, m: today.m, d: 1 }, end: today });
+  for (const m of text.matchAll(/\blast weekend\b/gi)) {
+    const sunday = addDays(today, -(weekdayOf(today) === 0 ? 7 : weekdayOf(today)));
+    add(m, { date: addDays(sunday, -1), end: sunday });
+  }
+  for (const m of text.matchAll(/\b(\d{1,2}|an?|one|two|three|four|five|six) weeks? ago\b/gi)) {
+    const mon = mondayOf(addDays(today, -7 * count(m[1]!)));
+    add(m, { date: mon, end: addDays(mon, 6) });
+  }
+  for (const m of text.matchAll(/\b(\d{1,2}|an?|one|two|three|four|five|six) months? ago\b/gi)) add(m, monthsBack(today, count(m[1]!)));
+  for (const m of text.matchAll(new RegExp(`\\bin (${MONTH_RE})\\b(?:,?\\s+(\\d{4}))?`, "gi"))) {
+    const mi = monthIndex(m[1]!);
+    const y = m[2] ? +m[2] : mi > today.m ? today.y - 1 : today.y;
+    const span = monthSpan(y, mi);
+    add(m, mi === today.m && y === today.y ? { date: span.date, end: today } : span);
+  }
+  for (const m of text.matchAll(/\b(earlier today|this (morning|afternoon|evening)|tonight|so far today)\b/gi)) {
+    const w = (m[2] ?? (/tonight/i.test(m[1]!) ? "evening" : undefined)) as DateRef["part"] | undefined;
+    add(m, { date: today, part: w });
+  }
+  for (const m of text.matchAll(/\bday before yesterday\b/gi)) add(m, day(addDays(today, -2)));
+  for (const m of text.matchAll(/\byesterday\b/gi)) add(m, day(addDays(today, -1)));
+  for (const m of text.matchAll(/\b(\d{1,3}) days? ago\b/gi)) add(m, day(addDays(today, -Number(m[1]))));
   for (const m of text.matchAll(new RegExp(`\\b(?:last|on|this|since)\\s+(${WEEKDAY_RE})\\b`, "gi"))) {
     const back = (weekdayOf(today) - weekdayIndex(m[1]!) + 7) % 7 || 7; // strictly before today: 1..7 days back
-    add(m, addDays(today, -back));
+    add(m, day(addDays(today, -back)));
   }
   for (const m of text.matchAll(new RegExp(`\\b(${WEEKDAY_RE})\\b`, "gi"))) {
     const back = (weekdayOf(today) - weekdayIndex(m[1]!) + 7) % 7 || 7;
-    add(m, addDays(today, -back));
+    add(m, day(addDays(today, -back)));
   }
 
-  return found.sort((a, b) => a.at - b.at).map(({ phrase, date }) => ({ phrase, date }));
+  return found.sort((a, b) => a.at - b.at).map(({ at: _at, ...ref }) => ref);
+}
+
+/** Instant at which `c` begins in `tz` (handles DST days). */
+export function zonedMidnight(c: Civil, tz: string): Date {
+  const offset = (ms: number) => {
+    const k = clock(new Date(ms), tz);
+    return Date.UTC(k.y, k.m - 1, k.d, k.hh, k.mm) - Math.floor(ms / 60_000) * 60_000;
+  };
+  const guess = Date.UTC(c.y, c.m - 1, c.d);
+  const first = guess - offset(guess);
+  return new Date(guess - offset(first)); // second pass settles days on which the clock changes
+}
+
+/** [from, to) in absolute time for a reference, for querying stored messages. */
+export function refBounds(ref: DateRef, tz: string): { from: Date; to: Date } {
+  const from = zonedMidnight(ref.date, tz);
+  const to = zonedMidnight(addDays(ref.end ?? ref.date, 1), tz);
+  if (!ref.part) return { from, to };
+  const h = ref.part === "morning" ? [0, 12] : ref.part === "afternoon" ? [12, 17] : [17, 24];
+  return { from: new Date(from.getTime() + h[0]! * 3_600_000), to: new Date(from.getTime() + h[1]! * 3_600_000) };
 }
 
 export const sameDay = (a: Civil, b: Civil) => a.y === b.y && a.m === b.m && a.d === b.d;

@@ -6,8 +6,9 @@ import type { StoredMessage } from "../src/store/db.js";
 
 const NOW = new Date("2026-11-10T13:15:00Z");
 const TZ = "UTC";
+let nextId = 0;
 const msg = (role: "user" | "assistant", content: string, iso: string, sources: StoredMessage["sources"] = []): StoredMessage =>
-  ({ sessionId: "s", role, content, sources, createdAt: new Date(iso) });
+  ({ id: ++nextId, sessionId: "s", role, content, sources, createdAt: new Date(iso) });
 
 describe("humanizeCitations", () => {
   const sources = [{ id: 1, title: "A", url: "https://www.a.com/x" }, { id: 2, title: "B", url: "https://b.com" }];
@@ -97,7 +98,7 @@ describe("buildDateLookup", () => {
   it("tells the model what was actually asked on the referenced day", () => {
     const out = buildDateLookup("What did I ask on 3 November?", stored, NOW, TZ);
     expect(out).toContain('"3 November" = Tue 3 Nov 2026 (2026-11-03, 7 days ago): 2 stored message(s)');
-    expect(out).toContain('The user asked: "Cheapest Postgres hosting?"');
+    expect(out).toContain('The user asked: [08:30] "Cheapest Postgres hosting?"');
   });
   it("states plainly that nothing is stored for a day, and names the nearest days that have records", () => {
     const out = buildDateLookup("What did I ask on 20 October?", stored, NOW, TZ);

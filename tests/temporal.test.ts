@@ -120,3 +120,66 @@ describe("resolveDateRefs (today = Tue 10 Nov 2026)", () => {
     expect(refs("yesterday", t, "UTC")).toEqual(["yesterday -> 2026-11-08"]);
   });
 });
+
+import { refBounds, zonedMidnight } from "../src/agent/temporal.js";
+const span = (text: string, now = NOW, tz = "Asia/Kolkata") => resolveDateRefs(text, now, tz).map((r) => `${isoDate(r.date)}${r.end ? ".." + isoDate(r.end) : ""}${r.part ? " " + r.part : ""}`);
+
+describe("resolveDateRefs: spans (today = Tue 10 Nov 2026)", () => {
+  it("resolves calendar weeks and months", () => {
+    expect(span("what did I ask last week?")).toEqual(["2026-11-02..2026-11-08"]);        // Mon-Sun before this week
+    expect(span("anything this week")).toEqual(["2026-11-09..2026-11-10"]);               // Monday to today
+    expect(span("last month")).toEqual(["2026-10-01..2026-10-31"]);
+    expect(span("this month")).toEqual(["2026-11-01..2026-11-10"]);
+    expect(span("last weekend")).toEqual(["2026-11-07..2026-11-08"]);
+  });
+  it("resolves 'N weeks/months ago' to the whole week or month", () => {
+    expect(span("2 weeks ago")).toEqual(["2026-10-26..2026-11-01"]);
+    expect(span("a week ago")).toEqual(["2026-11-02..2026-11-08"]);
+    expect(span("3 months ago")).toEqual(["2026-08-01..2026-08-31"]);
+  });
+  it("resolves 'in <month>' to the most recent such month, up to today for the current one", () => {
+    expect(span("what did we discuss in October?")).toEqual(["2026-10-01..2026-10-31"]);
+    expect(span("in November")).toEqual(["2026-11-01..2026-11-10"]);
+    expect(span("in December")).toEqual(["2025-12-01..2025-12-31"]);                       // not in the future yet: last year's
+    expect(span("in March 2025")).toEqual(["2025-03-01..2025-03-31"]);
+  });
+  it("does not read 'October 3' as the month of October", () => {
+    expect(span("on October 3")).toEqual(["2026-10-03"]);
+  });
+  it("understands parts of today", () => {
+    expect(span("earlier today")).toEqual(["2026-11-10"]);
+    expect(span("this morning")).toEqual(["2026-11-10 morning"]);
+    expect(span("tonight")).toEqual(["2026-11-10 evening"]);
+  });
+  it("handles a week that crosses a year boundary", () => {
+    expect(span("last week", new Date("2027-01-05T12:00:00Z"), "UTC")).toEqual(["2026-12-28..2027-01-03"]);
+  });
+});
+
+describe("refBounds: exact instants in the user's timezone", () => {
+  it("a day in IST starts at 18:30 UTC the evening before", () => {
+    const [ref] = resolveDateRefs("3 November", NOW, "Asia/Kolkata");
+    const { from, to } = refBounds(ref!, "Asia/Kolkata");
+    expect(from.toISOString()).toBe("2026-11-02T18:30:00.000Z");
+    expect(to.toISOString()).toBe("2026-11-03T18:30:00.000Z");
+  });
+  it("a span covers every day in it", () => {
+    const [ref] = resolveDateRefs("last week", NOW, "UTC");
+    const { from, to } = refBounds(ref!, "UTC");
+    expect(from.toISOString()).toBe("2026-11-02T00:00:00.000Z");
+    expect(to.toISOString()).toBe("2026-11-09T00:00:00.000Z");
+  });
+  it("this morning ends at noon local time", () => {
+    const [ref] = resolveDateRefs("this morning", NOW, "Asia/Kolkata");
+    const { from, to } = refBounds(ref!, "Asia/Kolkata");
+    expect(to.getTime() - from.getTime()).toBe(12 * 3_600_000);
+  });
+  it("midnight is correct across a daylight-saving change", () => {
+    // Clocks go back in New York on 1 Nov 2026: that day is 25 hours long.
+    const start = zonedMidnight({ y: 2026, m: 11, d: 1 }, "America/New_York");
+    const next = zonedMidnight({ y: 2026, m: 11, d: 2 }, "America/New_York");
+    expect(start.toISOString()).toBe("2026-11-01T04:00:00.000Z");
+    expect(next.toISOString()).toBe("2026-11-02T05:00:00.000Z");
+    expect((next.getTime() - start.getTime()) / 3_600_000).toBe(25);
+  });
+});

@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 import { hostOf } from "./sources.js";
-import { civilOf, dayDistance, daysAgo, formatDay, formatStamp, isoDate, relativeLabel, resolveDateRefs, sameDay } from "./temporal.js";
+import { civilOf, dayDistance, daysAgo, formatDay, formatStamp, isoDate, refBounds, relativeLabel, resolveDateRefs, sameDay, type DateRef } from "./temporal.js";
 import type { SourceRef, StoredMessage } from "../store/db.js";
 
 /** Last N messages of the current chat go in as real turns; anything older folds into the ledger. */
@@ -90,27 +90,60 @@ export function toModelMessages(live: StoredMessage[], newUserText: string, now:
   return turns.map((t) => ({ role: t.role, content: t.text }));
 }
 
+export interface LookupSource {
+  between(from: Date, to: Date): StoredMessage[];
+  /** Timestamps of the user's questions, to name the nearest days that do have records. */
+  activeDays(): Date[];
+}
+
+export interface Lookup {
+  /** Prompt block: what is stored for each day or span the user mentioned. */
+  text: string;
+  /** The stored messages behind it (used to recover the claims made on those days). */
+  messages: StoredMessage[];
+}
+
+const spanLabel = (ref: DateRef) => (ref.end && !sameDay(ref.end, ref.date) ? `${formatDay(ref.date)} to ${formatDay(ref.end)}` : formatDay(ref.date));
+
 /**
  * Resolves the dates in the user's message in code, then looks up what is actually stored for each.
  * The model receives "on that day: 2 messages (...)" or "nothing stored, nearest days are ...",
  * so it never has to guess, and "I have no record" is a fact handed to it, not something it must infer.
+ * Handles single days ("last Tuesday") and spans ("last week", "in October", "2 weeks ago").
  */
-export function buildDateLookup(userText: string, all: StoredMessage[], now: Date, tz: string): string {
+export function resolveLookup(userText: string, source: StoredMessage[] | LookupSource, now: Date, tz: string): Lookup {
   const refs = resolveDateRefs(userText, now, tz);
-  if (!refs.length) return "";
-  const stamped = all.map((m) => ({ m, day: civilOf(m.createdAt, tz) }));
-  const lines = refs.map(({ phrase, date }) => {
-    const head = `"${phrase}" = ${formatDay(date)} (${isoDate(date)}, ${relativeLabel(dayDistance(date, civilOf(now, tz)))})`;
-    const onDay = stamped.filter((s) => sameDay(s.day, date)).map((s) => s.m);
-    if (onDay.length) {
-      const asked = onDay.filter((m) => m.role === "user").slice(0, 5).map((m) => `"${clip(m.content.replace(/\s+/g, " "), 160)}"`);
-      return `${head}: ${onDay.length} stored message(s). The user asked: ${asked.join("; ") || "(no user messages)"}`;
+  if (!refs.length) return { text: "", messages: [] };
+  const src: LookupSource = Array.isArray(source)
+    ? {
+        between: (from, to) => source.filter((m) => m.createdAt >= from && m.createdAt < to).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
+        activeDays: () => source.filter((m) => m.role === "user").map((m) => m.createdAt),
+      }
+    : source;
+
+  const today = civilOf(now, tz);
+  const collected: StoredMessage[] = [];
+  const lines = refs.map((ref) => {
+    const { from, to } = refBounds(ref, tz);
+    const isSpan = Boolean(ref.end && !sameDay(ref.end, ref.date));
+    const span = isSpan ? `${isoDate(ref.date)} to ${isoDate(ref.end!)}` : `${isoDate(ref.date)}, ${relativeLabel(dayDistance(ref.date, today))}`;
+    const head = `"${ref.phrase}" = ${spanLabel(ref)}${ref.part ? ` (${ref.part})` : ""} (${span})`;
+    const inRange = src.between(from, to);
+    collected.push(...inRange);
+    if (inRange.length) {
+      const stamp = (m: StoredMessage) => (isSpan ? formatStamp(m.createdAt, tz) : formatStamp(m.createdAt, tz).split(", ")[1]);
+      const asked = inRange.filter((m) => m.role === "user").slice(0, 8).map((m) => `[${stamp(m)}] "${clip(m.content.replace(/\s+/g, " "), 150)}"`);
+      const more = inRange.filter((m) => m.role === "user").length - asked.length;
+      return `${head}: ${inRange.length} stored message(s). The user asked: ${asked.join("; ") || "(no user messages)"}${more > 0 ? `; and ${more} more` : ""}`;
     }
-    const days = [...new Map(stamped.map((s) => [isoDate(s.day), s.day])).values()]
-      .sort((a, b) => Math.abs(dayDistance(a, date)) - Math.abs(dayDistance(b, date)))
+    const days = [...new Map(src.activeDays().map((t) => { const c = civilOf(t, tz); return [isoDate(c), c] as const; })).values()]
+      .sort((a, b) => Math.abs(dayDistance(a, ref.date)) - Math.abs(dayDistance(b, ref.date)))
       .slice(0, 2);
-    const near = days.map((d) => `${formatDay(d)} (${relativeLabel(dayDistance(d, civilOf(now, tz)))})`).join(", ");
-    return `${head}: NO stored messages on that day.${near ? ` Nearest days with records: ${near}.` : " No conversations are stored at all."}`;
+    const near = days.map((d) => `${formatDay(d)} (${relativeLabel(dayDistance(d, today))})`).join(", ");
+    return `${head}: NO stored messages ${isSpan ? "in that span" : "on that day"}.${near ? ` Nearest days with records: ${near}.` : " No conversations are stored at all."}`;
   });
-  return lines.join("\n");
+  return { text: lines.join("\n"), messages: collected };
 }
+
+export const buildDateLookup = (userText: string, source: StoredMessage[] | LookupSource, now: Date, tz: string): string =>
+  resolveLookup(userText, source, now, tz).text;

@@ -22,7 +22,7 @@ export function checkCase(c: Case, events: AgentEvent[], seen: { title: string; 
 
   const failures: string[] = [];
   if (err || !done) failures.push(`run failed: ${err?.message ?? "no done event"}`);
-  const metrics: Metrics = done?.metrics ?? { model: "", fallbacks: [], ttftMs: null, firstStatusMs: null, searchWallMs: 0, totalMs: 0, steps: 0, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 }, searches: [] };
+  const metrics: Metrics = done?.metrics ?? { model: "", fallbacks: [], ttftMs: null, firstStatusMs: null, searchWallMs: 0, totalMs: 0, steps: 0, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 }, searches: [], intent: "lookup" as const, repaired: false, retrieved: 0, priorClaims: 0 };
   const ex = c.expect;
 
   const searched = metrics.searches.length > 0;

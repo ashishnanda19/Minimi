@@ -10,7 +10,8 @@ import { buildPool } from "./agent/models.js";
 import { isValidTimezone } from "./agent/temporal.js";
 import { loadConfig } from "./config.js";
 import { KeyedLock } from "./lib/keyedLock.js";
-import { Store } from "./store/db.js";
+import { DEFAULT_USER, Store } from "./store/db.js";
+import { generateTitle, heuristicTitle } from "./agent/title.js";
 import { TavilyProvider } from "./tools/search.js";
 
 const chatBody = z.object({
@@ -31,17 +32,27 @@ const chatBody = z.object({
 });
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
-const STATIC_FILES: Record<string, string> = { "/": "index.html", "/markdown.js": "markdown.js" };
-const CONTENT_TYPES: Record<string, string> = { html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8" };
+const STATIC_FILES: Record<string, string> = { "/": "index.html", "/markdown.js": "markdown.js", "/logo.png": "logo.png", "/discover-cat.png": "discover-cat.png" };
+const CONTENT_TYPES: Record<string, string> = { html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8", png: "image/png" };
 
-export function createApp(deps: AgentDeps & { defaultTz: string }) {
+const USER_ID = /^[\w-]{1,100}$/;
+const TITLE_WAIT_MS = 2_500;
+
+export function createApp(deps: AgentDeps & { defaultTz: string; /** Overridable so tests never call a model for titles. */ makeTitle?: (question: string) => Promise<string> }) {
   const app = new Hono();
   const lock = new KeyedLock();
+  const makeTitle = deps.makeTitle ?? ((q: string) => generateTitle(deps.models, q));
+  /** Whose chats these are. Browsers send a random per-browser id; curl and harnesses send none and share one user. */
+  const userOf = (c: { req: { header(name: string): string | undefined } }) => {
+    const raw = c.req.header("x-user-id");
+    return raw && USER_ID.test(raw) ? raw : DEFAULT_USER;
+  };
 
   for (const [route, file] of Object.entries(STATIC_FILES)) {
     app.get(route, async (c) => {
-      const body = await readFile(PUBLIC_DIR + file, "utf8");
-      return c.body(body, 200, { "content-type": CONTENT_TYPES[file.split(".").pop()!]!, "cache-control": "no-cache" });
+      const ext = file.split(".").pop()!;
+      const body = ext === "png" ? await readFile(PUBLIC_DIR + file) : await readFile(PUBLIC_DIR + file, "utf8");
+      return c.body(body as never, 200, { "content-type": CONTENT_TYPES[ext]!, "cache-control": ext === "png" ? "public, max-age=3600" : "no-cache" });
     });
   }
 
@@ -49,24 +60,25 @@ export function createApp(deps: AgentDeps & { defaultTz: string }) {
 
   app.get("/api/history", (c) => {
     const sessionId = c.req.query("sessionId") ?? "";
+    if (!deps.store.canAccess(sessionId, userOf(c))) return c.json({ sessionId, tz: null, messages: [] }); // someone else's chat looks empty
     const messages = deps.store.sessionMessages(sessionId).map((m) => ({
-      role: m.role, content: m.content, sources: m.sources, timestamp: m.createdAt.toISOString(),
+      role: m.role, content: m.content, sources: m.sources, verification: m.verification, timestamp: m.createdAt.toISOString(),
     }));
-    return c.json({ sessionId, tz: deps.store.sessionTz(sessionId) ?? null, messages });
+    return c.json({ sessionId, tz: deps.store.sessionTz(sessionId) ?? null, title: deps.store.getTitle(sessionId) ?? null, messages });
   });
 
   app.get("/api/sessions", (c) =>
-    c.json({ sessions: deps.store.listSessions().map((s) => ({ id: s.id, title: s.title, updatedAt: s.updatedAt.toISOString() })) }),
+    c.json({ sessions: deps.store.listSessions(userOf(c)).map((s) => ({ id: s.id, title: s.title, updatedAt: s.updatedAt.toISOString() })) }),
   );
 
   app.get("/api/memories", (c) =>
-    c.json({ memories: deps.store.recentQuestions().map((m) => ({ sessionId: m.sessionId, text: m.text, createdAt: m.createdAt.toISOString() })) }),
+    c.json({ memories: deps.store.recentQuestions(userOf(c)).map((m) => ({ sessionId: m.sessionId, text: m.text, createdAt: m.createdAt.toISOString() })) }),
   );
 
   app.delete("/api/sessions/:id", (c) => {
     const id = c.req.param("id");
     if (!/^[\w-]{1,100}$/.test(id)) return c.json({ error: "invalid session id" }, 400);
-    return c.json({ ok: deps.store.deleteSession(id) });
+    return c.json({ ok: deps.store.deleteSession(id, userOf(c)) });
   });
 
   app.post("/api/chat", async (c) => {
@@ -75,12 +87,30 @@ export function createApp(deps: AgentDeps & { defaultTz: string }) {
       return c.json({ error: parsed.error.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ") }, 400);
     }
     const b = parsed.data;
+    const userId = userOf(c);
     const sessionId = b.sessionId ?? randomUUID();
+    if (!deps.store.canAccess(sessionId, userId)) return c.json({ error: "That conversation belongs to someone else." }, 403);
     const tz = [b.tz, deps.store.sessionTz(sessionId), deps.defaultTz].find((t) => t && isValidTimezone(t))!;
+
+    // A title is attached to the first turn: an instant deterministic one now, upgraded by a free model while the answer is written.
+    const isNew = deps.store.messageCount(sessionId) === 0 && !deps.store.getTitle(sessionId);
+    let title: Promise<string | undefined> | undefined;
+    if (isNew) {
+      deps.store.ensureSession(sessionId, tz, new Date(), userId);
+      deps.store.setTitle(sessionId, heuristicTitle(b.message));
+      title = makeTitle(b.message)
+        .then((t) => { deps.store.setTitle(sessionId, t); return t; })
+        .catch(() => undefined);
+    }
+    const settledTitle = async () => {
+      if (!title) return undefined;
+      const t = await Promise.race([title, new Promise<undefined>((r) => setTimeout(r, TITLE_WAIT_MS))]);
+      return t ?? deps.store.getTitle(sessionId);
+    };
     // The clock is read when the turn actually starts (inside the lock), not when the request arrived,
     // so queued requests on one session are stamped in the order they run.
     const input = () => ({
-      sessionId, tz, message: b.message,
+      sessionId, tz, userId, message: b.message,
       now: b.now ? new Date(b.now) : new Date(),
       history: b.history && seedHistory(b.history, b.now ? new Date(b.now) : new Date()),
     });
@@ -97,7 +127,8 @@ export function createApp(deps: AgentDeps & { defaultTz: string }) {
       if (err) return c.json({ sessionId, error: err.message }, 502);
       const sources = events.find((e): e is Extract<AgentEvent, { type: "sources" }> => e.type === "sources");
       const done = events.find((e): e is Extract<AgentEvent, { type: "done" }> => e.type === "done");
-      return c.json({ sessionId, answer: finalAnswer(events), sources: sources?.items ?? [], metrics: done?.metrics });
+      const verification = events.find((e): e is Extract<AgentEvent, { type: "verification" }> => e.type === "verification");
+      return c.json({ sessionId, title: await settledTitle(), answer: finalAnswer(events), sources: sources?.items ?? [], verification: verification?.report, metrics: done?.metrics });
     }
 
     return streamSSE(c, async (stream) => {
@@ -109,6 +140,8 @@ export function createApp(deps: AgentDeps & { defaultTz: string }) {
           await stream.writeSSE({ event: e.type, data: JSON.stringify(e) });
         }
       });
+      const t = await settledTitle();
+      if (t) await stream.writeSSE({ event: "title", data: JSON.stringify({ type: "title", title: t }) });
     });
   });
 

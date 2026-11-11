@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { ModelPool } from "../src/agent/models.js";
 import { createApp } from "../src/server.js";
+import { heuristicTitle } from "../src/agent/title.js";
 import { Store } from "../src/store/db.js";
 import { fakeProvider, scriptedModel } from "./helpers.js";
 
 const make = (steps: Parameters<typeof scriptedModel>[0]) => {
   const model = scriptedModel(steps);
   const store = new Store(":memory:");
-  return { app: createApp({ models: ModelPool.single(model), provider: fakeProvider(), store, defaultTz: "UTC", sleep: async () => {} }), model, store };
+  return { app: createApp({ models: ModelPool.single(model), provider: fakeProvider(), store, defaultTz: "UTC", sleep: async () => {}, makeTitle: async (q: string) => heuristicTitle(q) }), model, store };
 };
 const post = (app: ReturnType<typeof make>["app"], body: object, headers: Record<string, string> = {}) =>
   app.request("/api/chat", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
@@ -22,11 +23,11 @@ function parseSse(text: string) {
 
 describe("POST /api/chat", () => {
   it("streams session, status, token, sources and done events", async () => {
-    const { app } = make([{ tools: [{ input: { query: "hubspot pricing" } }] }, { text: "It costs $20 [1]." }]);
+    const { app } = make([{ tools: [{ input: { query: "hubspot pricing" } }] }, { text: "The plan is listed on the pricing page [1]." }]);
     const res = await post(app, { sessionId: "abc", message: "price?" }, { accept: "text/event-stream" });
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const events = parseSse(await res.text());
-    expect(events.map((e) => e.event)).toEqual(["session", "status", "token", "sources", "done"]);
+    expect(events.map((e) => e.event)).toEqual(["session", "status", "token", "sources", "verification", "done", "title"]);
     expect(events[1]!.data.text).toBe("Searching: hubspot pricing");
     expect(events[3]!.data.items[0].url).toContain("example.com");
   });
@@ -126,7 +127,7 @@ describe("conversation list (sidebar)", () => {
     await chat(app, "old", "and Neon specifically?", "2026-11-10T09:00:00Z"); // activity bumps it to the top
     const { sessions } = await (await app.request("/api/sessions")).json();
     expect(sessions.map((s: any) => s.id)).toEqual(["old", "new"]);
-    expect(sessions[0].title).toBe("What is the cheapest Postgres host?");
+    expect(sessions[0].title).toBe("Cheapest Postgres host"); // summarised: the question word is dropped
     expect(sessions[1].title).toBe("Compare CRM tools for a sales team"); // whitespace collapsed
     expect(sessions[0].updatedAt).toMatch(/^2026-11-10/);
   });
@@ -164,5 +165,97 @@ describe("memory panel", () => {
   it("is empty before any conversation", async () => {
     const { app } = make([{ text: "x" }]);
     expect((await (await app.request("/api/memories")).json()).memories).toEqual([]);
+  });
+});
+
+describe("users are isolated over the API", () => {
+  const as = (user: string | undefined): Record<string, string> => (user ? { "x-user-id": user } : {});
+  const send = (app: ReturnType<typeof make>["app"], user: string | undefined, body: object) =>
+    post(app, body, { accept: "application/json", ...as(user) });
+  const get = (app: ReturnType<typeof make>["app"], path: string, user?: string) => app.request(path, { headers: as(user) });
+
+  it("each browser sees only its own chats and memories", async () => {
+    const { app } = make([{ text: "a" }, { text: "b" }]);
+    await send(app, "alice", { sessionId: "a1", message: "Cheapest Postgres host?" });
+    await send(app, "bob", { sessionId: "b1", message: "Best CRM for sales?" });
+    const list = async (u: string) => (await (await get(app, "/api/sessions", u)).json()).sessions.map((s: any) => s.id);
+    expect(await list("alice")).toEqual(["a1"]);
+    expect(await list("bob")).toEqual(["b1"]);
+    const mem = async (u: string) => (await (await get(app, "/api/memories", u)).json()).memories.map((m: any) => m.text);
+    expect(await mem("alice")).toEqual(["Cheapest Postgres host?"]);
+    expect(await mem("bob")).toEqual(["Best CRM for sales?"]);
+  });
+  it("someone else's chat reads as empty, cannot be written to, and cannot be deleted", async () => {
+    const { app, store } = make([{ text: "a" }, { text: "b" }]);
+    await send(app, "alice", { sessionId: "a1", message: "private question" });
+    const hist = await (await get(app, "/api/history?sessionId=a1", "bob")).json();
+    expect(hist.messages).toEqual([]);
+    const write = await send(app, "bob", { sessionId: "a1", message: "let me in" });
+    expect(write.status).toBe(403);
+    expect((await (await app.request("/api/sessions/a1", { method: "DELETE", headers: as("bob") })).json()).ok).toBe(false);
+    expect(store.sessionMessages("a1")).toHaveLength(2); // untouched
+  });
+  it("a malformed user id falls back to the shared default instead of failing", async () => {
+    const { app } = make([{ text: "a" }]);
+    await send(app, "bad id with spaces!", { sessionId: "d1", message: "hello there friend" });
+    expect((await (await get(app, "/api/sessions")).json()).sessions.map((s: any) => s.id)).toEqual(["d1"]); // visible to the default user
+  });
+  it("memory is shared across one user's chats but not across users", async () => {
+    const { app, model } = make([{ text: "a" }, { text: "b" }, { text: "c" }]);
+    await send(app, "alice", { sessionId: "a1", message: "Cheapest Postgres hosting?", now: "2026-11-03T09:00:00Z" });
+    await send(app, "alice", { sessionId: "a2", message: "What did I ask on 3 November?", now: "2026-11-10T09:00:00Z" });
+    await send(app, "bob", { sessionId: "b1", message: "What did I ask on 3 November?", now: "2026-11-10T09:00:00Z" });
+    const prompt = (n: number) => JSON.stringify(model.doStreamCalls[n]!.prompt);
+    expect(prompt(1)).toContain("Cheapest Postgres hosting?");
+    expect(prompt(2)).not.toContain("Cheapest Postgres hosting?");
+  });
+});
+
+describe("titles", () => {
+  const withTitle = (makeTitle: (q: string) => Promise<string>) => {
+    const model = scriptedModel([{ text: "Hello." }, { text: "Again." }]);
+    const store = new Store(":memory:");
+    return { store, app: createApp({ models: ModelPool.single(model), provider: fakeProvider(), store, defaultTz: "UTC", sleep: async () => {}, makeTitle }) };
+  };
+
+  it("the first turn gets a summarised title in the JSON response and in the sidebar", async () => {
+    const { app } = withTitle(async () => "Postgres hosting costs");
+    const body = await (await post(app, { sessionId: "t1", message: "What's the cheapest managed Postgres hosting for a small SaaS?" })).json();
+    expect(body.title).toBe("Postgres hosting costs");
+    expect((await (await app.request("/api/sessions")).json()).sessions[0].title).toBe("Postgres hosting costs");
+  });
+  it("streams a title event after the answer", async () => {
+    const { app } = withTitle(async () => "CRM pricing check");
+    const res = await post(app, { sessionId: "t2", message: "hello" }, { accept: "text/event-stream" });
+    const events = parseSse(await res.text());
+    expect(events.at(-1)).toMatchObject({ event: "title", data: { title: "CRM pricing check" } });
+  });
+  it("a failed or slow title model still gives an instant deterministic title", async () => {
+    const { app } = withTitle(() => Promise.reject(new Error("rate limited")));
+    const body = await (await post(app, { sessionId: "t3", message: "Can you tell me what's the latest Node LTS?" })).json();
+    expect(body.title).toBe("Latest Node LTS");
+  });
+  it("the title is generated once, on the first turn only", async () => {
+    let calls = 0;
+    const { app } = withTitle(async () => { calls++; return "First title"; });
+    await post(app, { sessionId: "t4", message: "first" });
+    await post(app, { sessionId: "t4", message: "second" });
+    expect(calls).toBe(1);
+    expect((await (await app.request("/api/sessions")).json()).sessions[0].title).toBe("First title");
+  });
+  it("the title is available on reload through the history endpoint", async () => {
+    const { app } = withTitle(async () => "Remembered title");
+    await post(app, { sessionId: "t5", message: "hi there" });
+    expect((await (await app.request("/api/history?sessionId=t5")).json()).title).toBe("Remembered title");
+  });
+});
+
+describe("verification over the API", () => {
+  it("the JSON response and the history both carry the report", async () => {
+    const { app } = make([{ text: "The plan is listed on the pricing page." }]);
+    const body = await (await post(app, { sessionId: "v1", message: "tell me about it" })).json();
+    expect(body.verification).toMatchObject({ ok: true, checked: 0 });
+    const hist = await (await app.request("/api/history?sessionId=v1")).json();
+    expect(hist.messages[1].verification).toMatchObject({ ok: true });
   });
 });
