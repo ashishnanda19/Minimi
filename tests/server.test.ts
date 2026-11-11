@@ -114,3 +114,36 @@ describe("static", () => {
     expect((await app.request("/health")).status).toBe(200);
   });
 });
+
+describe("conversation list (sidebar)", () => {
+  const chat = (app: ReturnType<typeof make>["app"], sessionId: string, message: string, now: string) =>
+    post(app, { sessionId, message, now }, { accept: "application/json" });
+
+  it("lists conversations newest first, titled by the first question", async () => {
+    const { app } = make([{ text: "a" }, { text: "b" }, { text: "c" }]);
+    await chat(app, "old", "What is the cheapest Postgres host?", "2026-11-03T09:00:00Z");
+    await chat(app, "new", "Compare   CRM tools\nfor a sales team", "2026-11-09T09:00:00Z");
+    await chat(app, "old", "and Neon specifically?", "2026-11-10T09:00:00Z"); // activity bumps it to the top
+    const { sessions } = await (await app.request("/api/sessions")).json();
+    expect(sessions.map((s: any) => s.id)).toEqual(["old", "new"]);
+    expect(sessions[0].title).toBe("What is the cheapest Postgres host?");
+    expect(sessions[1].title).toBe("Compare CRM tools for a sales team"); // whitespace collapsed
+    expect(sessions[0].updatedAt).toMatch(/^2026-11-10/);
+  });
+
+  it("does not list empty sessions or failed first turns", async () => {
+    const { app } = make([{ error: Object.assign(new Error("x"), { statusCode: 401 }) }]);
+    await chat(app, "failed", "hello", "2026-11-09T09:00:00Z");
+    expect((await (await app.request("/api/sessions")).json()).sessions).toEqual([]);
+  });
+
+  it("deletes a conversation, including from memory, and validates the id", async () => {
+    const { app, store } = make([{ text: "a" }]);
+    await chat(app, "gone", "remember this", "2026-11-09T09:00:00Z");
+    expect((await (await app.request("/api/sessions/gone", { method: "DELETE" })).json()).ok).toBe(true);
+    expect(store.sessionMessages("gone")).toHaveLength(0);
+    expect(store.earlierMessages("other", 10)).toHaveLength(0);
+    expect((await (await app.request("/api/sessions/gone", { method: "DELETE" })).json()).ok).toBe(false);
+    expect((await app.request("/api/sessions/bad%20id!", { method: "DELETE" })).status).toBe(400);
+  });
+});

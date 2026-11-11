@@ -49,3 +49,18 @@ describe("eval checks", () => {
     expect(o.failures[0]).toMatch(/run failed: boom/);
   });
 });
+
+describe("groundedness: arithmetic yes, invention no", () => {
+  const c: Case = { id: "g", question: "q", expect: { search: "yes" }, rubric: "" };
+  const seen = [{ title: "Vercel", content: "Pro is $20 per seat. Workers Paid is $5 a month." }];
+  const check = (text: string) => checkCase(c, run(text, [{ query: "a" }], [src]), seen).failures.filter((f) => /ungrounded/.test(f));
+
+  it("accepts a multiple or a sum of quoted figures", () => {
+    expect(check("4 developers on Vercel is $80 [1].")).toEqual([]);
+    expect(check("Vercel plus Cloudflare is $25 [1].")).toEqual([]);
+  });
+  it("still rejects a figure that cannot be derived", () => {
+    expect(check("Vercel costs $37 [1].")[0]).toMatch(/\$37/);
+    expect(check("It is $20.50 [1].")[0]).toMatch(/\$20\.50/);
+  });
+});

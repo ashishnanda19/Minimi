@@ -8,7 +8,8 @@ export interface Outcome {
   sources: { id: number; url: string }[];
 }
 
-/** Deterministic (non-LLM) checks. `seen` is everything the search backend returned to the model. */
+/** Deterministic (non-LLM) checks. Groundedness allows arithmetic on quoted figures, but not invented ones.
+ * `seen` is everything the search backend returned to the model. */
 export function checkCase(c: Case, events: AgentEvent[], seen: { title: string; content: string }[]): Outcome {
   const err = events.find((e): e is Extract<AgentEvent, { type: "error" }> => e.type === "error");
   const done = events.find((e): e is Extract<AgentEvent, { type: "done" }> => e.type === "done");
@@ -51,7 +52,12 @@ export function checkCase(c: Case, events: AgentEvent[], seen: { title: string; 
     ...(c.seed ?? []).flatMap((s) => s.messages.map((m) => m.content)),
     c.question,
   ].join(" "));
-  const ungrounded = [...new Set([...answer.matchAll(/\$\s?\d[\d,]*(?:\.\d+)?/g)].map((x) => norm(x[0])).filter((p) => !haystack.includes(p)))];
+  const grounded = [...haystack.matchAll(/\$(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
+  // A figure is fine if it is quoted, or is simple arithmetic on quoted ones ("4 seats x $20 = $80", "$20 + $5").
+  const derivable = (v: number) =>
+    grounded.some((g) => g > 0 && Number.isInteger(v / g) && v / g >= 2 && v / g <= 36) ||
+    grounded.some((a) => grounded.some((b) => Math.abs(a + b - v) < 1e-9));
+  const ungrounded = [...new Set([...answer.matchAll(/\$\s?\d[\d,]*(?:\.\d+)?/g)].map((x) => norm(x[0])).filter((p) => !haystack.includes(p) && !derivable(Number(p.slice(1)))))];
   if (ungrounded.length) failures.push(`ungrounded figure(s): ${ungrounded.join(", ")}`);
 
   return { failures, answer, metrics, sources };

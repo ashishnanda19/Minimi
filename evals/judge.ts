@@ -13,19 +13,20 @@ export const verdictSchema = z.object({
 export type Verdict = z.infer<typeof verdictSchema>;
 
 export async function judge(models: ModelPool, ctx: {
-  calendar: string; memory: string; question: string; answer: string; queries: string[]; rubric: string; sources: string;
+  calendar: string; memory: string; question: string; answer: string; queries: string[]; rubric: string; sources: string; evidence: string;
 }): Promise<Verdict> {
   const call = (model: PoolEntry["model"]) => generateText({
     model,
     maxRetries: 0,
     output: Output.object({ schema: verdictSchema }),
-    system: "You are a strict evaluator of a web-search chat assistant. Judge ONLY the assistant's behaviour against the rubric, using the calendar as the ground truth for dates. You cannot verify live web facts, so do not penalise specific prices that are cited; do penalise claims with no citation, invented changes, wrong dates, and ignoring the rubric.",
+    system: "You are a strict evaluator of a web-search chat assistant. Judge ONLY the assistant's behaviour against the rubric, using the calendar as the ground truth for dates. Check claims against the search evidence provided: a figure or detail present there is supported, even if the citation URL alone looks unrelated. Penalise claims with no support in the evidence or memory, invented changes, wrong dates, and ignoring the rubric.",
     prompt: [
       `CALENDAR (ground truth):\n${ctx.calendar}`,
       `MEMORY AVAILABLE TO THE ASSISTANT:\n${ctx.memory || "(none)"}`,
       `USER QUESTION: ${ctx.question}`,
       `SEARCH QUERIES THE ASSISTANT RAN: ${ctx.queries.length ? ctx.queries.join(" | ") : "(none)"}`,
       `SOURCES CITED: ${ctx.sources || "(none)"}`,
+      `SEARCH EVIDENCE THE ASSISTANT WAS SHOWN (use it to verify claims; a claim supported here is NOT invented):\n${ctx.evidence || "(none)"}`,
       `ASSISTANT ANSWER:\n${ctx.answer}`,
       `RUBRIC: ${ctx.rubric}`,
     ].join("\n\n"),

@@ -55,6 +55,16 @@ export function createApp(deps: AgentDeps & { defaultTz: string }) {
     return c.json({ sessionId, tz: deps.store.sessionTz(sessionId) ?? null, messages });
   });
 
+  app.get("/api/sessions", (c) =>
+    c.json({ sessions: deps.store.listSessions().map((s) => ({ id: s.id, title: s.title, updatedAt: s.updatedAt.toISOString() })) }),
+  );
+
+  app.delete("/api/sessions/:id", (c) => {
+    const id = c.req.param("id");
+    if (!/^[\w-]{1,100}$/.test(id)) return c.json({ error: "invalid session id" }, 400);
+    return c.json({ ok: deps.store.deleteSession(id) });
+  });
+
   app.post("/api/chat", async (c) => {
     const parsed = chatBody.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {

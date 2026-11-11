@@ -119,6 +119,33 @@ export class Store {
     return rows.map(toMessage);
   }
 
+  /** Conversations for the sidebar, newest activity first. The title is the first thing the user asked; no model call needed. */
+  listSessions(limit = 200): { id: string; title: string; updatedAt: Date }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT s.id AS id,
+                (SELECT content FROM messages m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.created_at, m.id LIMIT 1) AS first_question,
+                (SELECT MAX(created_at) FROM messages m WHERE m.session_id = s.id) AS updated_at
+         FROM sessions s
+         WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id)
+         ORDER BY updated_at DESC LIMIT ?`,
+      )
+      .all(limit) as { id: string; first_question: string | null; updated_at: string }[];
+    return rows.map((r) => ({
+      id: r.id,
+      title: (r.first_question ?? "New chat").replace(/\s+/g, " ").trim().slice(0, 80) || "New chat",
+      updatedAt: new Date(r.updated_at),
+    }));
+  }
+
+  /** Removes a conversation and, because memory is global, its place in what the agent remembers. */
+  deleteSession(id: string): boolean {
+    return this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM messages WHERE session_id = ?`).run(id);
+      return this.db.prepare(`DELETE FROM sessions WHERE id = ?`).run(id).changes > 0;
+    })();
+  }
+
   close(): void {
     this.db.close();
   }

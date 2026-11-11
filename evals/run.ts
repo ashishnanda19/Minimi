@@ -29,7 +29,6 @@ try {
 }
 const models = buildPool(cfg);
 const realProvider = new TavilyProvider(cfg.tavilyKey);
-const sharedCache = new TtlCache<Hit[]>(500, 30 * 60_000); // identical queries across cases cost one credit
 
 interface Row {
   id: string;
@@ -61,7 +60,7 @@ async function runCase(c: Case): Promise<Row> {
 
   const events: AgentEvent[] = [];
   for await (const e of runAgent(
-    { models, provider, store, cache: sharedCache },
+    { models, provider, store, cache: new TtlCache<Hit[]>(100, 60_000) },
     { sessionId: c.current ?? `case-${c.id}`, message: c.question, tz, now },
   )) events.push(e);
 
@@ -76,6 +75,7 @@ async function runCase(c: Case): Promise<Row> {
         question: c.question, answer, rubric: c.rubric,
         queries: m.searches.map((s) => s.query),
         sources: sources.map((s) => `[${s.id}] ${s.url}`).join(" "),
+        evidence: seen.slice(0, 24).map((r) => `- ${r.title} (${r.url}) [${r.publishedDate ? `published ${r.publishedDate}` : "undated"}]: ${r.content.replace(/\s+/g, " ").slice(0, 600)}`).join("\n"),
       });
       if (!verdict.pass) failures.push(`judge: ${verdict.reason}`);
     } catch (e) {
