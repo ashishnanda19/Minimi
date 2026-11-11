@@ -294,6 +294,17 @@ export class Store {
     })();
   }
 
+  /** Chats created before accounts existed (or by clients that send no user id) belong to the shared default user. */
+  legacyCount(): number {
+    return (this.db.prepare(`SELECT COUNT(*) AS n FROM sessions s WHERE s.user_id = ? AND EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id)`).get(DEFAULT_USER) as { n: number }).n;
+  }
+
+  /** Hands the shared default user's chats to `userId`. Returns how many conversations moved. */
+  claimLegacy(userId: string): number {
+    if (userId === DEFAULT_USER) return 0;
+    return this.db.prepare(`UPDATE sessions SET user_id = ? WHERE user_id = ?`).run(userId, DEFAULT_USER).changes;
+  }
+
   close(): void {
     this.db.close();
   }

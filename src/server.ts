@@ -43,6 +43,8 @@ export function createApp(deps: AgentDeps & { defaultTz: string; /** Overridable
   const lock = new KeyedLock();
   const makeTitle = deps.makeTitle ?? ((q: string) => generateTitle(deps.models, q));
   /** Whose chats these are. Browsers send a random per-browser id; curl and harnesses send none and share one user. */
+  /** Only a local install may import the shared default user's chats: on a shared server they belong to someone else. */
+  const isLocal = (c: { req: { url: string } }) => ["localhost", "127.0.0.1", "[::1]", "::1"].includes(new URL(c.req.url).hostname);
   const userOf = (c: { req: { header(name: string): string | undefined } }) => {
     const raw = c.req.header("x-user-id");
     return raw && USER_ID.test(raw) ? raw : DEFAULT_USER;
@@ -60,7 +62,7 @@ export function createApp(deps: AgentDeps & { defaultTz: string; /** Overridable
 
   app.get("/api/history", (c) => {
     const sessionId = c.req.query("sessionId") ?? "";
-    if (!deps.store.canAccess(sessionId, userOf(c))) return c.json({ sessionId, tz: null, messages: [] }); // someone else's chat looks empty
+    if (!deps.store.canAccess(sessionId, userOf(c))) return c.json({ sessionId, tz: null, messages: [], forbidden: true }); // someone else's chat looks empty
     const messages = deps.store.sessionMessages(sessionId).map((m) => ({
       role: m.role, content: m.content, sources: m.sources, verification: m.verification, timestamp: m.createdAt.toISOString(),
     }));
@@ -70,6 +72,14 @@ export function createApp(deps: AgentDeps & { defaultTz: string; /** Overridable
   app.get("/api/sessions", (c) =>
     c.json({ sessions: deps.store.listSessions(userOf(c)).map((s) => ({ id: s.id, title: s.title, updatedAt: s.updatedAt.toISOString() })) }),
   );
+
+  app.get("/api/legacy", (c) => c.json({ count: isLocal(c) && userOf(c) !== DEFAULT_USER ? deps.store.legacyCount() : 0 }));
+
+  app.post("/api/legacy/claim", (c) => {
+    const userId = userOf(c);
+    if (!isLocal(c)) return c.json({ error: "Importing is only available on a local install." }, 403);
+    return c.json({ moved: deps.store.claimLegacy(userId) });
+  });
 
   app.get("/api/memories", (c) =>
     c.json({ memories: deps.store.recentQuestions(userOf(c)).map((m) => ({ sessionId: m.sessionId, text: m.text, createdAt: m.createdAt.toISOString() })) }),

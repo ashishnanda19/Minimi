@@ -259,3 +259,46 @@ describe("verification over the API", () => {
     expect(hist.messages[1].verification).toMatchObject({ ok: true });
   });
 });
+
+describe("upgrading from before private accounts", () => {
+  const asUser = (id: string): Record<string, string> => ({ "x-user-id": id });
+  const legacyChat = async (app: ReturnType<typeof make>["app"]) =>
+    post(app, { sessionId: "old1", message: "A question from the old days" }, { accept: "application/json" }); // no header: the shared default user
+
+  it("a chat id left in the browser from before is reported as forbidden, so the UI can replace it", async () => {
+    const { app } = make([{ text: "a" }]);
+    await legacyChat(app);
+    const own = await (await app.request("/api/history?sessionId=old1")).json();
+    expect(own.forbidden).toBeUndefined();
+    const other = await (await app.request("/api/history?sessionId=old1", { headers: asUser("new-browser") })).json();
+    expect(other).toMatchObject({ forbidden: true, messages: [] });
+    const unknown = await (await app.request("/api/history?sessionId=never-seen", { headers: asUser("new-browser") })).json();
+    expect(unknown.forbidden).toBeUndefined();
+  });
+  it("a new browser is offered the earlier chats, and importing moves them to it", async () => {
+    const { app } = make([{ text: "a" }]);
+    await legacyChat(app);
+    expect((await (await app.request("/api/legacy", { headers: asUser("me") })).json()).count).toBe(1);
+    expect((await (await app.request("/api/sessions", { headers: asUser("me") })).json()).sessions).toEqual([]);
+    const claim = await (await app.request("/api/legacy/claim", { method: "POST", headers: asUser("me") })).json();
+    expect(claim.moved).toBe(1);
+    expect((await (await app.request("/api/sessions", { headers: asUser("me") })).json()).sessions.map((s: any) => s.id)).toEqual(["old1"]);
+    expect((await (await app.request("/api/legacy", { headers: asUser("me") })).json()).count).toBe(0);
+    expect((await (await app.request("/api/sessions")).json()).sessions).toEqual([]); // the shared user no longer holds them
+  });
+  it("the shared default user is never offered its own chats back", async () => {
+    const { app } = make([{ text: "a" }]);
+    await legacyChat(app);
+    expect((await (await app.request("/api/legacy")).json()).count).toBe(0);
+    expect((await (await app.request("/api/legacy/claim", { method: "POST" })).json()).moved).toBe(0);
+  });
+  it("importing is refused on a non-local host, so nobody can take another person's chats on a shared server", async () => {
+    const { app, store } = make([{ text: "a" }]);
+    await legacyChat(app);
+    const res = await app.request("http://chat.example.com/api/legacy/claim", { method: "POST", headers: asUser("thief") });
+    expect(res.status).toBe(403);
+    expect((await (await app.request("http://chat.example.com/api/legacy", { headers: asUser("thief") })).json()).count).toBe(0);
+    expect(store.listSessions("thief")).toEqual([]);
+    expect(store.listSessions().map((s) => s.id)).toEqual(["old1"]);
+  });
+});

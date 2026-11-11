@@ -77,6 +77,10 @@
   .item .del { opacity: 0; width: 30px; height: 30px; margin-right: 6px; border-radius: 9px; display: grid; place-items: center; color: var(--muted); }
   .item .del svg { width: 15px; height: 15px; }
   .item:hover .del, .item .del:focus-visible { opacity: 1; } .item .del:hover { color: var(--err); background: var(--err-bg); }
+  .legacy { margin: 10px 18px 0; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--gold) 50%, transparent); border-radius: 14px; font-size: 13.5px; color: var(--muted); }
+  .legacy b { color: var(--text); }
+  .legacy button { margin-top: 8px; padding: 6px 14px; border-radius: 10px; background: var(--gold); color: #fff; font-weight: 600; font-size: 13px; }
+  .legacy button:disabled { opacity: .6; }
   .empty-history { padding: 36px 20px; color: var(--muted); font-size: 14px; text-align: center; }
   .empty-history b { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
 
@@ -241,6 +245,7 @@
         <button class="icon-btn" id="collapse" aria-label="Hide chats" title="Hide chats"></button>
       </div>
       <label class="search"><span data-i="search"></span><input id="search" type="search" placeholder="Search chats" autocomplete="off" aria-label="Search chats"></label>
+      <div class="legacy" id="legacy" hidden></div>
       <nav class="history" id="history"></nav>
     </aside>
 
@@ -446,6 +451,24 @@ async function removeSession(s) {
 }
 $("search").addEventListener("input", renderHistory);
 
+/* ---------- chats from before private accounts ---------- */
+async function checkLegacy() {
+  const box = $("legacy");
+  try {
+    const { count = 0 } = await (await api("/api/legacy")).json();
+    if (!count) { box.hidden = true; return; }
+    box.innerHTML = `<b>${count} earlier ${count === 1 ? "chat" : "chats"}</b> from before chats became private to each browser.`;
+    const b = el("button", "", "Import them"); b.type = "button";
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = "Importing…";
+      await api("/api/legacy/claim", { method: "POST" }).catch(() => {});
+      box.hidden = true;
+      await Promise.all([refreshSessions(), refreshMemories()]);
+    };
+    box.append(b); box.hidden = false;
+  } catch { box.hidden = true; }
+}
+
 /* ---------- memories rail ---------- */
 const DATEISH = /\b(yesterday|today|last \w+day|\d+ days? ago|\d{1,2}(st|nd|rd|th)? (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w* \d{1,2})/i;
 async function refreshMemories() {
@@ -552,7 +575,8 @@ function showEmpty() {
 function setHeader(title, model) { $("title").textContent = title || "New chat"; const c = $("modelChip"); c.textContent = model || ""; c.classList.toggle("show", Boolean(model)); }
 async function loadHistory() {
   try {
-    const { messages = [], title: savedTitle } = await (await api(`/api/history?sessionId=${encodeURIComponent(sessionId)}`)).json();
+    const { messages = [], title: savedTitle, forbidden } = await (await api(`/api/history?sessionId=${encodeURIComponent(sessionId)}`)).json();
+    if (forbidden) { sessionId = crypto.randomUUID(); store.set("minimi.session", sessionId); } // a chat id left over from before private accounts
     thread.replaceChildren();
     if (!messages.length) { setHeader("New chat"); return showEmpty(); }
     setHeader(savedTitle || messages.find((m) => m.role === "user")?.content.replace(/\s+/g, " ").slice(0, 80));
@@ -608,7 +632,9 @@ async function send(retry = false) {
   let raw = "", sources = [], frame = 0, model = "", ms = 0, report = null, repaired = false, serverTitle = "";
   const paint = () => { frame = 0; const stick = nearBottom(); body.innerHTML = renderMarkdown(raw, sources); if (stick) toBottom(); };
   try {
-    const res = await api("/api/chat", { method: "POST", signal: controller.signal, headers: { "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify({ sessionId, message: text, tz }) });
+    const post = () => api("/api/chat", { method: "POST", signal: controller.signal, headers: { "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify({ sessionId, message: text, tz }) });
+    let res = await post();
+    if (res.status === 403) { sessionId = crypto.randomUUID(); store.set("minimi.session", sessionId); res = await post(); } // never show "belongs to someone else" for stale browser state
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status})`);
     for await (const ev of sseEvents(res)) {
       if (ev.type === "status") { if (!status.isConnected) content.prepend(status); status.lastElementChild.textContent = ev.text; }
@@ -643,7 +669,7 @@ input.addEventListener("input", () => { input.style.height = "auto"; input.style
 
 /* ---------- boot ---------- */
 sendBtn.disabled = true;
-await Promise.all([loadHistory(), refreshSessions(), refreshMemories()]);
+await Promise.all([loadHistory(), refreshSessions(), refreshMemories(), checkLegacy()]);
 </script>
 </body>
 </html>
