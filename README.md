@@ -29,7 +29,7 @@ tiers to follow the date and re-verification rules most reliably.
 | Command | What it does |
 |---|---|
 | `npm run dev` | server with reload |
-| `npm test` | 302 unit and integration tests, no keys or network needed |
+| `npm test` | 311 unit and integration tests, no keys or network needed |
 | `npm run typecheck` / `npm run build` | strict TypeScript |
 | `npm run bench` | the speed pass: Tavily depth, snippet length, real parallel speed-up; writes `evals/speed.md` (needs keys) |
 | `npm run eval` | 16 end-to-end cases against the real models and search, writes `evals/results.md` (needs keys) |

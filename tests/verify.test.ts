@@ -295,3 +295,53 @@ describe("no evidence, no reassurance (from a live run where every search failed
     expect(verify("No changes found.", [], { reverify: false }).unverifiedAbsence).toBe(false);
   });
 });
+
+describe("a figure stated as the present needs a source, not memory (from a live run)", () => {
+  const memory = "I told you Neon Launch was about $19/mo.";
+  const ev1 = [ev(1, "Neon typical spend $15 per month, usage based", { url: "https://neon.com/pricing", title: "Neon Pricing" })];
+
+  it("'$19 -> $19, unchanged' is flagged when the source says $15: the current-side $19 has no support", () => {
+    const r = verify("Neon: $19 -> $19, unchanged [1].", ev1, { memoryText: memory });
+    expect(status(r)).toEqual(["$19:memory", "$19:unsupported"]);
+    expect(r.ok).toBe(false);
+  });
+  it("'still / remains / now' makes the figure a claim about the present", () => {
+    for (const a of ["Neon still costs $19 per month [1].", "Neon remains $19/mo [1].", "Neon is currently $19 per month [1]."]) {
+      expect(status(verify(a, ev1, { memoryText: memory })), a).toEqual(["$19:unsupported"]);
+    }
+  });
+  it("'$19 -> $15' passes: the old side is memory, the new side is sourced", () => {
+    expect(status(verify("Neon: $19 -> $15 [1].", ev1, { memoryText: memory }))).toEqual(["$19:memory", "$15:supported"]);
+  });
+  it("'$19 -> $19, unchanged' still passes when a source really says $19", () => {
+    const r = verify("Neon: $19 -> $19, unchanged [1].", [ev(1, "Neon Launch from $19 per month", { url: "https://neon.com/p", title: "Neon" })], { memoryText: memory });
+    expect(status(r)).toEqual(["$19:supported", "$19:supported"]); // a source states it, so memory is not even needed
+    expect(r.ok).toBe(true);
+  });
+  it("on a recall turn, quoting memory as current is fine", () => {
+    expect(verify("Neon still showed $19 when you asked.", [], { memoryText: memory, recall: true }).ok).toBe(true);
+  });
+});
+
+describe("overlooked changes must be about price or plan (from a live run)", () => {
+  const check = (answer: string, evidence: EvidenceSource[]) => verify(answer, evidence, { reverify: true, windowStart: "2026-11-09" });
+  it("a railroad article near the word 'Railway' is not a pricing change", () => {
+    const rail = ev(17, "A project will reduce the risk of derailment and improve the safety and reliability of Railway passenger and freight service in Minneapolis", { published: "2026-11-09", url: "https://www.dot.state.mn.us/news", title: "Rail project" });
+    expect(check("Railway: no pricing changes found [17].", [rail]).overlooked).toEqual([]);
+  });
+  it("a vendor's own page counts even when the name is only in its address and title", () => {
+    const neon = ev(3, "Free plan storage increased from 0.5 GB to 5 GB, effective Nov 10", { published: "2026-11-10", url: "https://neon.com/blog/free-plan", title: "Neon: bigger free plan" });
+    const r = check("Neon: no pricing changes found [3].", [neon]);
+    expect(r.overlooked).toHaveLength(1);
+    expect(r.overlooked[0]!.excerpt).toContain("storage increased");
+  });
+  it("change language with no price or plan word beside it is ignored", () => {
+    expect(check("Neon: no changes found [1].", [ev(1, "Neon announced a new office in Berlin", { published: "2026-11-10" })]).overlooked).toEqual([]);
+  });
+});
+
+describe("figures are extracted without trailing punctuation", () => {
+  it("keeps $1,200 whole but not the comma that follows $19", () => {
+    expect(extractFigures("$19, then $1,200, and $5.").map((f) => f.raw)).toEqual(["$19", "$1,200", "$5"]);
+  });
+});

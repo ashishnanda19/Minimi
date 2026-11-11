@@ -66,6 +66,8 @@ const CITATION = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
 /** Wording that frames a figure as something said earlier, not as the current state. */
 const AS_OLD = /\b(you|i|we) (asked|said|told|answered|mentioned|gave|quoted|noted|highlighted|recommended|suggested|listed|stated|shortlisted)\b|\b(earlier|previously|before|originally|back then|at the time|at that time|a while back|last time|was|were|then)\b|→|->|\b(mon|tues|wednes|thurs|fri|satur|sun)day\b|\b\d{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
 /** Verbs that attribute a date to a source. A bare "on" is not one: "On Tue 3 Nov you asked..." dates the conversation, not a web page. */
+/** After one of these, a figure is a claim about NOW ("$19 -> $19", "still $14", "remains $5") and needs a source, not memory. */
+const CURRENT_MARKER = /→|->|\bnow\b|\bcurrently\b|\btoday\b|\bremains?\b|\bstill\b|\bunchanged\b|\bas of\b|\bat present\b/i;
 const DATE_VERB = /\b(published|dated|announced|released|launched|shipped|updated|posted)\b/i;
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
@@ -86,14 +88,24 @@ const NO_CHANGE = /\bno (pricing |price |plan )?(changes?|updates?)\b|\bunchange
 /** Language of something having moved: a source with these, about the same thing, is a change the answer must address. */
 const CHANGE_WORDS = /\b(increas(e|ed|es|ing)|rais(e|ed|es|ing)|reduc(e|ed|es|ing|tion)|lower(ed|s|ing)|cut(s|ting)? (the )?(price|prices|pricing)|discontinu\w+|deprecat\w+|sunset\w*|introduc(e|ed|es|ing)|launch(ed|es|ing)|announc(e|ed|es|ing)|price (change|hike|increase|drop|cut)|new (pricing|price|plan|tier)|no longer|will (now )?(cost|increase|change|be)|effective (from )?\w+ \d{1,2})\b/i;
 
-/** Position of change language within `radius` characters of a mention of `subject`, or undefined. */
-function changeNear(text: string, subject: string, radius: number): number | undefined {
+/** Words that make a change a change to what a customer pays or gets, not a railway reducing derailment risk. */
+const PRODUCT_WORDS = /\b(pric(e|es|ing)|plans?|tiers?|costs?|free|paid|billing|credits?|quota|storage|seats?|subscription|per (month|user|seat|gb|hour)|usage|limits?)\b|[$€£]\s?\d/i;
+
+/**
+ * Position of a *product* change worth flagging, or undefined. The change must sit beside pricing or plan language, and
+ * either beside a mention of `subject` in the text, or anywhere on a page that is itself the subject's (its address or title).
+ */
+function changeNear(page: { url: string; title: string; text: string }, subject: string, radius: number): number | undefined {
+  const { text } = page;
   const lower = text.toLowerCase(), s = subject.toLowerCase();
+  const isSubjectsPage = `${page.url} ${page.title}`.toLowerCase().includes(s);
   const mentions: number[] = [];
   for (let at = lower.indexOf(s); at >= 0; at = lower.indexOf(s, at + s.length)) mentions.push(at);
-  if (!mentions.length) return undefined;
+  if (!mentions.length && !isSubjectsPage) return undefined;
   for (const m of text.matchAll(new RegExp(CHANGE_WORDS.source, "gi"))) {
-    if (mentions.some((at) => Math.abs(at - (m.index ?? 0)) <= radius)) return m.index;
+    const at = m.index ?? 0;
+    if (!PRODUCT_WORDS.test(text.slice(Math.max(0, at - 90), at + 120))) continue;            // about something other than price or plan
+    if (isSubjectsPage || mentions.some((x) => Math.abs(x - at) <= radius)) return at;
   }
   return undefined;
 }
@@ -135,6 +147,12 @@ export function datesIn(text: string, now: Date): Set<string> {
   return out;
 }
 
+/** Is the figure at `index` stated as the present state? True once a "now / still / → / unchanged" marker has appeared before it. */
+function isCurrent(unit: string, index: number): boolean {
+  const at = unit.search(CURRENT_MARKER);
+  return at >= 0 && index > at;
+}
+
 export function verifyAnswer(input: VerifyInput): VerificationReport {
   const { answer, evidence, memoryText, searched, now } = input;
   const evidenceKeys = new Map(evidence.map((e) => [e.id, figureKeys(`${e.title} ${e.text}`)]));
@@ -159,7 +177,7 @@ export function verifyAnswer(input: VerifyInput): VerificationReport {
   for (const u of units(answer)) {
     const cited = idsIn(u.text);
     for (const f of extractFigures(u.text)) {
-      const dedupe = `${keyOf(f)}|${cited.join(",")}`;
+      const dedupe = `${keyOf(f)}|${cited.join(",")}|${isCurrent(u.text, f.index)}`; // "$19 -> $19": the old and the current $19 are different claims
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
       const k = keyOf(f);
@@ -167,7 +185,7 @@ export function verifyAnswer(input: VerifyInput): VerificationReport {
       let status: FigureStatus;
       if (cited.length && foundIn.some((id) => cited.includes(id))) status = "supported";
       else if (foundIn.length) status = cited.length ? "misattributed" : "supported";
-      else if (memorySupports(k, u.text) && (input.recall || AS_OLD.test(u.text))) status = "memory";
+      else if (memorySupports(k, u.text) && (input.recall || (AS_OLD.test(u.text) && !isCurrent(u.text, f.index)))) status = "memory";
       else if (isDerived(f, known)) status = "derived";
       else status = "unsupported";
       figures.push({ figure: f.raw, status, cited, foundIn });
@@ -215,7 +233,7 @@ export function verifyAnswer(input: VerifyInput): VerificationReport {
         for (const e of recent) {
           if (overlooked.some((o) => o.subject === subject && o.id === e.id)) continue;
           // The change language must sit next to the subject, or it is about something else on the same page ("Neon announced..." says nothing about Supabase).
-          const near = changeNear(e.text, subject, 140);
+          const near = changeNear(e, subject, 140);
           if (near === undefined) continue;
           const excerpt = e.text.slice(Math.max(0, near - 70), near + 90).replace(/\s+/g, " ").trim();
           const dated = [...datesIn(excerpt, now)];

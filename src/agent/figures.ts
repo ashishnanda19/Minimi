@@ -25,7 +25,7 @@ export const keyOf = (f: Pick<Figure, "kind" | "value">) => `${f.kind}:${f.value
 
 export function extractFigures(text: string): Figure[] {
   const out: Figure[] = [];
-  for (const m of text.matchAll(/(?:US\$|[$€£₹])\s?(\d[\d,]*(?:\.\d+)?)(?:\s?(k|m|bn|million|billion)\b)?|(\d[\d,]*(?:\.\d+)?)\s?(USD|EUR|GBP|INR|dollars?|euros?)\b/gi)) {
+  for (const m of text.matchAll(/(?:US\$|[$€£₹])\s?(\d(?:[\d,]*\d)?(?:\.\d+)?)(?:\s?(k|m|bn|million|billion)\b)?|(\d(?:[\d,]*\d)?(?:\.\d+)?)\s?(USD|EUR|GBP|INR|dollars?|euros?)\b/gi)) {
     out.push({ raw: m[0], kind: "money", value: normalise(m[1] ?? m[3]!, m[2]), index: m.index ?? 0 });
   }
   for (const m of text.matchAll(/(\d+(?:\.\d+)?)\s?%/g)) out.push({ raw: m[0], kind: "percent", value: normalise(m[1]!), index: m.index ?? 0 });
